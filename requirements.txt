@@ -1,0 +1,3 @@
+# This is a Node.js/React project.
+# Please refer to package.json for dependencies.
+# Use 'pnpm install' to install dependencies.
