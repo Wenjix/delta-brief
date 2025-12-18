@@ -134,8 +134,8 @@ export async function seedDemoData() {
       next_topic: syllabus.sessions[1].topic, // Operating Model
       work_changes: [
         { bullet: "CTO resigned unexpectedly", category: "stakeholders", impact: "high" },
-        { bullet: "Legal rejected non-PHI pilot proposal", category: "compliance", impact: "high" },
-        { bullet: "Union rep agreed to join steering committee", category: "change_mgmt", impact: "medium" }
+        { bullet: "Legal rejected non-PHI pilot proposal (cited re-id risk)", category: "compliance", impact: "critical" },
+        { bullet: "Union rep agreed to join steering committee", category: "change_mgmt", impact: "high" }
       ]
     }
   });

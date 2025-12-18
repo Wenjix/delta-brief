@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { memoryProvider, Memory } from "@/lib/memory";
 import { seedDemoData } from "@/lib/seed";
-import { Trash2, RefreshCw, Database, Calendar, Briefcase, FileText, User, GitCompare, BookOpen } from "lucide-react";
+import { Trash2, RefreshCw, Database, Calendar, Briefcase, FileText, User, GitCompare, BookOpen, AlertTriangle, AlertCircle, Info } from "lucide-react";
 import { toast } from "sonner";
 import syllabusData from "@/lib/syllabus.json";
 
@@ -105,6 +105,20 @@ export default function History() {
       case 'brief_output': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 border-green-200 dark:border-green-800';
       case 'feedback': return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200 border-orange-200 dark:border-orange-800';
       default: return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+
+  const getImpactBadge = (impact: string) => {
+    const normalized = impact?.toLowerCase() || 'low';
+    switch (normalized) {
+      case 'critical':
+        return <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200"><AlertTriangle className="w-3 h-3 mr-1" /> Critical</span>;
+      case 'high':
+        return <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200"><AlertCircle className="w-3 h-3 mr-1" /> High</span>;
+      case 'medium':
+        return <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200"><Info className="w-3 h-3 mr-1" /> Medium</span>;
+      default:
+        return <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200">Low</span>;
     }
   };
 
@@ -232,11 +246,16 @@ export default function History() {
                           {mem.episode_type === 'work_delta' && (
                             <div className="space-y-2">
                               <div className="text-sm font-medium text-muted-foreground">Work Changes:</div>
-                              <ul className="list-disc list-inside text-sm space-y-1">
+                              <ul className="list-none text-sm space-y-2">
                                 {(mem.payload.work_changes as any[])?.map((change: any, i: number) => (
-                                  <li key={i}>
-                                    <span className="font-medium">{change.bullet || change}</span>
-                                    {change.impact && <span className="ml-2 text-xs bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-slate-600 dark:text-slate-400">{change.impact}</span>}
+                                  <li key={i} className="flex items-start gap-2">
+                                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-slate-400 shrink-0" />
+                                    <div className="flex-1">
+                                      <span className="font-medium">{change.bullet || change}</span>
+                                      <div className="mt-1">
+                                        {getImpactBadge(change.impact)}
+                                      </div>
+                                    </div>
                                   </li>
                                 ))}
                               </ul>
@@ -246,10 +265,24 @@ export default function History() {
                           {mem.episode_type === 'brief_output' && (
                             <div className="space-y-3">
                               <div className="text-sm font-medium text-muted-foreground">Generated Moves:</div>
-                              <ul className="list-decimal list-inside text-sm space-y-1 pl-2 border-l-2 border-green-200 dark:border-green-900 ml-1">
-                                {(mem.payload.moves as string[])?.map((move, i) => (
-                                  <li key={i} className="py-0.5">{move}</li>
-                                ))}
+                              <ul className="list-decimal list-inside text-sm space-y-2 pl-2 border-l-2 border-green-200 dark:border-green-900 ml-1">
+                                {(mem.payload.moves as string[])?.map((move, i) => {
+                                  // Extract framework tag if present
+                                  const frameworkMatch = move.match(/\(Framework: (.+?)\)/);
+                                  const cleanMove = move.replace(/\(Framework: .+?\)/, '').trim();
+                                  const framework = frameworkMatch ? frameworkMatch[1] : null;
+
+                                  return (
+                                    <li key={i} className="py-0.5">
+                                      <span>{cleanMove}</span>
+                                      {framework && (
+                                        <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-800">
+                                          {framework}
+                                        </span>
+                                      )}
+                                    </li>
+                                  );
+                                })}
                               </ul>
                               {mem.payload.open_threads && (
                                 <>

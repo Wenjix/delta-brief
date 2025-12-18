@@ -112,11 +112,17 @@ ${syllabusStr}
 Profile memory (stable facts about the student + org):
 ${profileStr}
 
-Most recent weekly check-in / deltas:
+Most recent weekly check-in / deltas (Sorted by impact):
 ${deltasStr}
 
 Last brief output (to avoid repeats & resolve open threads):
 ${lastBriefStr}
+
+CRITICAL INSTRUCTION:
+1. Identify the highest impact delta from the check-in.
+2. Identify any "Open Threads" from the last brief that this delta affects.
+3. You MUST dedicate at least one Move to explicitly resolving this thread.
+   - Format: "Previously: [Old Plan] -> Now: [New Plan] -> Update: [Resolution]"
 
 Write the brief using this EXACT structure (markdown):
 
@@ -127,7 +133,7 @@ Write the brief using this EXACT structure (markdown):
 
 ## 3 moves that matter since last class (ranked)
 For each move, include exactly these sub-bullets:
-1) Move: <7–12 words>
+1) Move: <7–12 words> (Framework: <Name of Framework used>)
    - What changed (specific, from deltas)
    - Why it matters for my org (tie to profile + constraints)
    - Capstone implication (tie to capstone topic/milestone)
@@ -139,7 +145,7 @@ For each move, include exactly these sub-bullets:
 
 ## 1 next action I can complete this week (smallest step)
 - Action: <one sentence>
-- Output artifact: <one sentence deliverable>
+- Output artifact: ${syllabusDetails?.assignment_hook || "<one sentence deliverable>"}
 
 ## Class discussion ammo
 - Contrarian point A: <one sentence>
