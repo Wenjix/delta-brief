@@ -20,6 +20,8 @@ export interface BriefGenerationParams {
   recentDeltas?: Memory[];
   lastBrief?: Memory;
   enableSimilarityCheck?: boolean;
+  customSystemPrompt?: string;
+  customUserPromptTemplate?: string;
 }
 
 export interface BriefGenerationResult {
@@ -57,6 +59,75 @@ function getSyllabusDetails(topic: string) {
   };
 }
 
+export const DEFAULT_SYSTEM_PROMPT = `You are an executive-grade EMBA assistant. The user is time-poor and wants class learnings converted into immediate work leverage.
+
+Non-negotiables:
+- Output MUST be one page in length and follow the exact template provided.
+- Produce exactly 3 “Moves that matter” that are specific to the user’s org + goals.
+- Avoid repeating last brief’s moves unless something materially changed; if you reference a prior move, explicitly state what changed.
+- Be constraint-aware: always factor in the user’s top constraints.
+- No generic AI hype. No filler. No long explanations.
+- If information is missing, make a minimal assumption and label it “Assumption: …”.`;
+
+export const DEFAULT_USER_PROMPT_TEMPLATE = `Generate a “Pre-Class Delta Brief” for the next class session.
+
+Syllabus / next topic:
+{{syllabusTopic}}
+Detailed Syllabus Context:
+{{syllabusStr}}
+
+Profile memory (stable facts about the student + org):
+{{profileStr}}
+
+Most recent weekly check-in / deltas (Sorted by impact):
+{{deltasStr}}
+
+Last brief output (to avoid repeats & resolve open threads):
+{{lastBriefStr}}
+
+CRITICAL INSTRUCTION:
+1. Identify the highest impact delta from the check-in.
+2. Identify any "Open Threads" from the last brief that this delta affects.
+3. You MUST dedicate at least one Move to explicitly resolving this thread.
+   - Format: "Previously: [Old Plan] -> Now: [New Plan] -> Update: [Resolution]"
+
+Write the brief using this EXACT structure (markdown):
+
+# Pre-Class Delta Brief — {{className}} — {{classDate}}
+
+## This week’s lens (tie to syllabus topic)
+- (1–2 bullets)
+
+## 3 moves that matter since last class (ranked)
+For each move, include exactly these sub-bullets:
+1) Move: <7–12 words> (Framework: <Name of Framework used>)
+   - What changed (specific, from deltas)
+   - Why it matters for my org (tie to profile + constraints)
+   - Capstone implication (tie to capstone topic/milestone)
+   - “In-class line” (one sentence I can say in class)
+
+## 2 risks / failure modes (constraint-aware)
+- Risk 1: <one sentence> — Mitigation: <one sentence>
+- Risk 2: <one sentence> — Mitigation: <one sentence>
+
+## 1 next action I can complete this week (smallest step)
+- Action: <one sentence>
+- Output artifact: {{assignmentHook}}
+
+## Class discussion ammo
+- Contrarian point A: <one sentence>
+- Contrarian point B: <one sentence>
+- Question to ask (prof/guest): <one sentence>
+- My org story (30 seconds): <3–5 sentences, concrete>
+
+## Memory highlights used (for transparency)
+- (4–7 short chips/phrases; only items truly used)
+
+Hard constraints:
+- Do NOT include anything outside the template.
+- Do NOT exceed ~350–450 words total.
+- Do NOT invent facts about the user’s org; only use provided memories/deltas. If needed, use “Assumption: …”.`;
+
 export async function generateBrief(params: BriefGenerationParams): Promise<BriefGenerationResult> {
   const { 
     classDate, 
@@ -66,7 +137,9 @@ export async function generateBrief(params: BriefGenerationParams): Promise<Brie
     profile, 
     recentDeltas = [], 
     lastBrief,
-    enableSimilarityCheck = false
+    enableSimilarityCheck = false,
+    customSystemPrompt,
+    customUserPromptTemplate
   } = params;
 
   const isPersonalized = mode === 'personalized';
@@ -91,75 +164,21 @@ export async function generateBrief(params: BriefGenerationParams): Promise<Brie
     ? JSON.stringify(syllabusDetails, null, 2)
     : "No detailed syllabus found for this topic.";
 
-  // 2. Build Base Prompt
-  const systemPrompt = `You are an executive-grade EMBA assistant. The user is time-poor and wants class learnings converted into immediate work leverage.
-
-Non-negotiables:
-- Output MUST be one page in length and follow the exact template provided.
-- Produce exactly 3 “Moves that matter” that are specific to the user’s org + goals.
-- Avoid repeating last brief’s moves unless something materially changed; if you reference a prior move, explicitly state what changed.
-- Be constraint-aware: always factor in the user’s top constraints.
-- No generic AI hype. No filler. No long explanations.
-- If information is missing, make a minimal assumption and label it “Assumption: …”.`;
-
-  let userPrompt = `Generate a “Pre-Class Delta Brief” for the next class session.
-
-Syllabus / next topic:
-${syllabusTopic}
-Detailed Syllabus Context:
-${syllabusStr}
-
-Profile memory (stable facts about the student + org):
-${profileStr}
-
-Most recent weekly check-in / deltas (Sorted by impact):
-${deltasStr}
-
-Last brief output (to avoid repeats & resolve open threads):
-${lastBriefStr}
-
-CRITICAL INSTRUCTION:
-1. Identify the highest impact delta from the check-in.
-2. Identify any "Open Threads" from the last brief that this delta affects.
-3. You MUST dedicate at least one Move to explicitly resolving this thread.
-   - Format: "Previously: [Old Plan] -> Now: [New Plan] -> Update: [Resolution]"
-
-Write the brief using this EXACT structure (markdown):
-
-# Pre-Class Delta Brief — ${className} — ${classDate}
-
-## This week’s lens (tie to syllabus topic)
-- (1–2 bullets)
-
-## 3 moves that matter since last class (ranked)
-For each move, include exactly these sub-bullets:
-1) Move: <7–12 words> (Framework: <Name of Framework used>)
-   - What changed (specific, from deltas)
-   - Why it matters for my org (tie to profile + constraints)
-   - Capstone implication (tie to capstone topic/milestone)
-   - “In-class line” (one sentence I can say in class)
-
-## 2 risks / failure modes (constraint-aware)
-- Risk 1: <one sentence> — Mitigation: <one sentence>
-- Risk 2: <one sentence> — Mitigation: <one sentence>
-
-## 1 next action I can complete this week (smallest step)
-- Action: <one sentence>
-- Output artifact: ${syllabusDetails?.assignment_hook || "<one sentence deliverable>"}
-
-## Class discussion ammo
-- Contrarian point A: <one sentence>
-- Contrarian point B: <one sentence>
-- Question to ask (prof/guest): <one sentence>
-- My org story (30 seconds): <3–5 sentences, concrete>
-
-## Memory highlights used (for transparency)
-- (4–7 short chips/phrases; only items truly used)
-
-Hard constraints:
-- Do NOT include anything outside the template.
-- Do NOT exceed ~350–450 words total.
-- Do NOT invent facts about the user’s org; only use provided memories/deltas. If needed, use “Assumption: …”.`;
+  // 2. Build Prompts
+  const systemPrompt = customSystemPrompt || DEFAULT_SYSTEM_PROMPT;
+  
+  let userPrompt = customUserPromptTemplate || DEFAULT_USER_PROMPT_TEMPLATE;
+  
+  // Interpolate variables
+  userPrompt = userPrompt
+    .replace('{{syllabusTopic}}', syllabusTopic)
+    .replace('{{syllabusStr}}', syllabusStr)
+    .replace('{{profileStr}}', profileStr)
+    .replace('{{deltasStr}}', deltasStr)
+    .replace('{{lastBriefStr}}', lastBriefStr)
+    .replace('{{className}}', className)
+    .replace('{{classDate}}', classDate)
+    .replace('{{assignmentHook}}', syllabusDetails?.assignment_hook || "<one sentence deliverable>");
 
   // 3. Initial Generation Loop
   try {

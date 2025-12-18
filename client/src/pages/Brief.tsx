@@ -4,11 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { memoryProvider, Memory } from "@/lib/memory";
-import { generateBrief, BriefGenerationResult } from "@/lib/llm";
+import { generateBrief, BriefGenerationResult, DEFAULT_SYSTEM_PROMPT, DEFAULT_USER_PROMPT_TEMPLATE } from "@/lib/llm";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
-import { Loader2, ThumbsUp, ThumbsDown, Clock, CheckCircle, AlertTriangle } from "lucide-react";
+import { Loader2, ThumbsUp, ThumbsDown, Clock, CheckCircle, AlertTriangle, Settings2, RotateCcw } from "lucide-react";
 
 export default function Brief() {
   const [, setLocation] = useLocation();
@@ -18,9 +20,22 @@ export default function Brief() {
   const [result, setResult] = useState<BriefGenerationResult | null>(null);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
 
+  // Prompt Configuration State
+  const [showPromptConfig, setShowPromptConfig] = useState(false);
+  const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
+  const [userPromptTemplate, setUserPromptTemplate] = useState(DEFAULT_USER_PROMPT_TEMPLATE);
+
   // State for feedback
   const [minutesSaved, setMinutesSaved] = useState(15);
   const [usedInClass, setUsedInClass] = useState(false);
+
+  const handleResetPrompts = () => {
+    if (confirm("Reset prompts to default?")) {
+      setSystemPrompt(DEFAULT_SYSTEM_PROMPT);
+      setUserPromptTemplate(DEFAULT_USER_PROMPT_TEMPLATE);
+      toast.success("Prompts reset to default");
+    }
+  };
 
   const handleGenerate = async () => {
     setIsGenerating(true);
@@ -52,7 +67,9 @@ export default function Brief() {
         profile: isPersonalized ? profile : undefined,
         recentDeltas: isPersonalized ? recentDeltas : [latestDelta], // Generic still needs current context
         lastBrief: isPersonalized ? lastBrief : undefined,
-        enableSimilarityCheck: isPersonalized && enableSimilarityCheck
+        enableSimilarityCheck: isPersonalized && enableSimilarityCheck,
+        customSystemPrompt: systemPrompt,
+        customUserPromptTemplate: userPromptTemplate
       });
 
       setResult(generated);
@@ -140,16 +157,21 @@ export default function Brief() {
             )}
           </div>
 
-          <Button onClick={handleGenerate} disabled={isGenerating}>
-            {isGenerating ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Generating...
-              </>
-            ) : (
-              "Generate Brief"
-            )}
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="icon" onClick={() => setShowPromptConfig(true)} title="Configure Prompts">
+              <Settings2 className="h-4 w-4" />
+            </Button>
+            <Button onClick={handleGenerate} disabled={isGenerating}>
+              {isGenerating ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Generating...
+                </>
+              ) : (
+                "Generate Brief"
+              )}
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -278,6 +300,55 @@ export default function Brief() {
           </div>
         </div>
       )}
+
+      {/* Prompt Configuration Dialog */}
+      <Dialog open={showPromptConfig} onOpenChange={setShowPromptConfig}>
+        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Prompt Configuration</DialogTitle>
+            <DialogDescription>
+              Edit the exact instructions sent to the LLM. Variables like {'{{syllabusTopic}}'} will be interpolated at runtime.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-y-auto space-y-4 py-4 pr-2">
+            <div className="space-y-2">
+              <Label htmlFor="system-prompt" className="font-bold">System Prompt</Label>
+              <p className="text-xs text-muted-foreground">Defines the persona, constraints, and non-negotiables.</p>
+              <Textarea 
+                id="system-prompt" 
+                value={systemPrompt} 
+                onChange={(e) => setSystemPrompt(e.target.value)}
+                className="font-mono text-xs min-h-[150px]"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="user-prompt" className="font-bold">User Prompt Template</Label>
+              <p className="text-xs text-muted-foreground">The structure of the request, including context injection points.</p>
+              <Textarea 
+                id="user-prompt" 
+                value={userPromptTemplate} 
+                onChange={(e) => setUserPromptTemplate(e.target.value)}
+                className="font-mono text-xs min-h-[300px]"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="flex justify-between items-center sm:justify-between">
+            <Button variant="ghost" size="sm" onClick={handleResetPrompts} className="text-muted-foreground">
+              <RotateCcw className="h-4 w-4 mr-2" /> Reset to Default
+            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setShowPromptConfig(false)}>Cancel</Button>
+              <Button onClick={() => {
+                setShowPromptConfig(false);
+                toast.success("Prompt configuration saved");
+              }}>Save Changes</Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
