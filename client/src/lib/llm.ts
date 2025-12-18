@@ -246,7 +246,10 @@ export async function generateBrief(params: BriefGenerationParams): Promise<Brie
     let moves = extractMoves(markdown);
     let similarityReport: SimilarityReport | undefined;
 
-    // 4. Framework Validation Logic
+    // 4. Validation Logic (Consolidated)
+    let validationErrors: string[] = [];
+
+    // A. Framework Validation
     if (frameworkNames.length > 0) {
       const frameworkRegex = /\(Framework:\s*([^)]+)\)/g;
       let match;
@@ -258,33 +261,55 @@ export async function generateBrief(params: BriefGenerationParams): Promise<Brie
           invalidFrameworks.push(usedFramework);
         }
       }
-
       if (invalidFrameworks.length > 0) {
-        console.log("Framework validation failed. Retrying...", invalidFrameworks);
-        retryCount++;
-
-        const retryInstruction = `
-Validation failed: you used framework names not in ALLOWED_FRAMEWORK_NAMES.
-You MUST copy/paste one of the exact allowed strings for each Move.
-
-Invalid names used: ${JSON.stringify(invalidFrameworks)}
-Allowed names: ${JSON.stringify(frameworkNames)}
-`;
-        messages.push({ role: 'assistant', content: markdown });
-        messages.push({ role: 'user', content: retryInstruction });
-
-        completion = await openai.chat.completions.create({
-          model: MODEL_ID,
-          messages,
-          temperature: 0.5, // Lower temp for strict compliance
-        });
-
-        markdown = completion.choices[0]?.message?.content || "Error generating brief.";
-        moves = extractMoves(markdown);
+        validationErrors.push(`Invalid frameworks used: ${JSON.stringify(invalidFrameworks)}. Allowed: ${JSON.stringify(frameworkNames)}.`);
       }
     }
 
-    // 5. Similarity Check & Retry Logic (only if framework check passed or after retry)
+    // B. Move Count Validation
+    if (moves.length !== 3) {
+      validationErrors.push(`Incorrect number of moves: ${moves.length}. Required: exactly 3.`);
+    }
+
+    // C. Open Thread Validation
+    // If last brief had open threads, check if "Open Thread Update" is present
+    // (This is a heuristic check)
+    if (lastBriefStr.includes("Open Thread") && !markdown.includes("Open Thread Update")) {
+      validationErrors.push(`Missing 'Open Thread Update' section. You must resolve the open thread from the last brief.`);
+    }
+
+    // D. Duplicate Section Validation
+    const highlightsMatches = markdown.match(/## Memory highlights used/g);
+    if (highlightsMatches && highlightsMatches.length > 1) {
+      validationErrors.push(`Duplicate 'Memory highlights used' section detected.`);
+    }
+
+    // Execute Retry if Validation Failed
+    if (validationErrors.length > 0) {
+      console.log("Validation failed. Retrying...", validationErrors);
+      retryCount++;
+
+      const retryInstruction = `
+CRITICAL VALIDATION FAILURES - FIX IMMEDIATELY:
+${validationErrors.map(e => `- ${e}`).join('\n')}
+
+Please regenerate the ENTIRE brief correcting these errors.
+`;
+      messages.push({ role: 'assistant', content: markdown });
+      messages.push({ role: 'user', content: retryInstruction });
+
+      completion = await openai.chat.completions.create({
+        model: MODEL_ID,
+        messages,
+        temperature: 0.5, // Lower temp for strict compliance
+      });
+
+      markdown = completion.choices[0]?.message?.content || "Error generating brief.";
+      moves = extractMoves(markdown);
+    }
+
+    // 5. Similarity Check & Retry Logic (only if validation passed or after retry)
+    // Note: We prioritize validation fixes first. If similarity fails, we do a second retry pass.
     if (enableSimilarityCheck && isPersonalized && lastBrief && lastBrief.payload.moves) {
       const prevMoves = lastBrief.payload.moves as string[];
       

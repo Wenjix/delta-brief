@@ -6,12 +6,14 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { memoryProvider, Memory } from "@/lib/memory";
 import { generateBrief, BriefGenerationResult, DEFAULT_SYSTEM_PROMPT, DEFAULT_USER_PROMPT_TEMPLATE } from "@/lib/llm";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
-import { Loader2, ThumbsUp, ThumbsDown, Clock, CheckCircle, AlertTriangle, Settings2, RotateCcw } from "lucide-react";
-import { ClassCalendar, getNextSession, Session } from "@/components/ClassCalendar";
+import { Loader2, ThumbsUp, ThumbsDown, Clock, CheckCircle, AlertTriangle, Settings2, RotateCcw, Eye, Calendar } from "lucide-react";
+import { ClassCalendar, getNextSession, Session, getLocalISODate } from "@/components/ClassCalendar";
+import syllabus from "@/lib/syllabus.json";
 
 export default function Brief() {
   const [, setLocation] = useLocation();
@@ -28,16 +30,69 @@ export default function Brief() {
 
   // Session Selection State
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+  const [briefedSessions, setBriefedSessions] = useState<string[]>([]);
+
+  // Brief Preview State
+  const [previewBrief, setPreviewBrief] = useState<Memory | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+
+  // Dev Mode State
+  const [showDevDate, setShowDevDate] = useState(false);
+  const [currentDateOverride, setCurrentDateOverride] = useState(getLocalISODate());
 
   // State for feedback
   const [minutesSaved, setMinutesSaved] = useState(15);
   const [usedInClass, setUsedInClass] = useState(false);
 
-  // Initialize session on mount
+  // Initialize session on mount and fetch briefed sessions
   useEffect(() => {
-    const next = getNextSession();
+    // Check for dev mode flag
+    const isDev = localStorage.getItem("devMode") === "true" || window.location.search.includes("dev=1");
+    if (isDev) setShowDevDate(true);
+
+    const next = getNextSession(currentDateOverride);
     if (next) setSelectedSession(next);
-  }, []);
+    
+    // Fetch all brief outputs to populate calendar indicators
+    const fetchBriefedSessions = async () => {
+      try {
+        const briefs = await memoryProvider.search("", { episode_type: ["brief_output"] }, 50);
+        const sessionIds = briefs.map(b => b.session_id).filter(Boolean);
+        setBriefedSessions(Array.from(new Set(sessionIds)));
+      } catch (err) {
+        console.error("Failed to fetch briefed sessions", err);
+      }
+    };
+    
+    fetchBriefedSessions();
+  }, [currentDateOverride]); // Re-run when override changes
+
+  // When session changes, check if we have a brief for it
+  useEffect(() => {
+    if (selectedSession && briefedSessions.includes(selectedSession.date)) {
+      // We could auto-load it, but let's just make it available via a button
+    }
+  }, [selectedSession, briefedSessions]);
+
+  const handleViewBrief = async () => {
+    if (!selectedSession) return;
+    try {
+      const briefs = await memoryProvider.search("", { 
+        episode_type: ["brief_output"],
+        session_id: [selectedSession.date]
+      }, 1);
+      
+      if (briefs.length > 0) {
+        setPreviewBrief(briefs[0]);
+        setShowPreview(true);
+      } else {
+        toast.error("No brief found for this session.");
+      }
+    } catch (err) {
+      console.error("Failed to fetch brief for preview", err);
+      toast.error("Failed to load brief.");
+    }
+  };
 
   const handleResetPrompts = () => {
     if (confirm("Reset prompts to default?")) {
@@ -60,11 +115,56 @@ export default function Brief() {
     try {
       // 1. Fetch Context
       const [profile] = await memoryProvider.search("", { episode_type: ["profile"] }, 1);
-      const recentDeltas = await memoryProvider.search("", { episode_type: ["work_delta"] }, 3);
       
-      // Fetch last brief specifically for the PREVIOUS session relative to selected
-      // For demo simplicity, we just grab the most recent brief_output
-      const [lastBrief] = await memoryProvider.search("", { episode_type: ["brief_output"] }, 1);
+      // Deterministic Retrieval Logic:
+      // We need the work_delta for the CURRENT session (or latest available)
+      // And the brief_output from the PREVIOUS session (to check for open threads/compounding)
+      
+      // Find previous session date
+      const sortedSessions = [...syllabus.sessions].sort((a, b) => 
+        new Date(a.date).getTime() - new Date(b.date).getTime()
+      );
+      const currentIndex = sortedSessions.findIndex(s => s.date === selectedSession.date);
+      const previousSession = currentIndex > 0 ? sortedSessions[currentIndex - 1] : null;
+
+      // Fetch specific memories
+      let recentDeltas: Memory[] = [];
+      let lastBrief: Memory | undefined = undefined;
+
+      // Get delta for THIS session (if user checked in for it)
+      // Or fallback to most recent delta if specific one missing (for demo robustness)
+      const specificDelta = await memoryProvider.search("", { 
+        episode_type: ["work_delta"],
+        session_id: [selectedSession.date] 
+      }, 1);
+      
+      if (specificDelta.length > 0) {
+        recentDeltas = specificDelta;
+      } else {
+        // Fallback: grab latest delta generally
+        recentDeltas = await memoryProvider.search("", { episode_type: ["work_delta"] }, 1);
+      }
+
+      // Get brief from PREVIOUS session
+      if (previousSession) {
+        const prevBriefs = await memoryProvider.search("", { 
+          episode_type: ["brief_output"],
+          session_id: [previousSession.date]
+        }, 1);
+        if (prevBriefs.length > 0) {
+          lastBrief = prevBriefs[0];
+        }
+      }
+
+      // If no previous brief found (e.g. first session or gap), maybe fallback to *any* last brief?
+      // For strict compounding, we might prefer null, but for demo flow, let's try to find *any* recent brief if strict one fails
+      if (!lastBrief) {
+         const anyLastBrief = await memoryProvider.search("", { episode_type: ["brief_output"] }, 1);
+         // Only use it if it's historically before current session
+         if (anyLastBrief.length > 0 && anyLastBrief[0].session_id < selectedSession.date) {
+           lastBrief = anyLastBrief[0];
+         }
+      }
 
       // Get latest delta for syllabus info (hack for demo)
       const latestDelta = recentDeltas[0];
@@ -107,6 +207,9 @@ export default function Brief() {
           moves: generated.moves // Store moves for next time
         }
       });
+      
+      // Update briefed sessions list
+      setBriefedSessions(prev => Array.from(new Set([...prev, selectedSession.date])));
 
     } catch (error) {
       console.error(error);
@@ -149,11 +252,40 @@ export default function Brief() {
         </div>
         
         {/* Calendar Component */}
-        <div className="w-full md:w-72 shrink-0">
+        <div className="w-full md:w-72 shrink-0 space-y-4">
+          {showDevDate && (
+            <div className="p-3 bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg">
+              <Label className="text-xs font-mono text-orange-800 dark:text-orange-200 mb-1 block flex items-center gap-1">
+                <Calendar className="w-3 h-3" />
+                DEV: SIMULATE DATE
+              </Label>
+              <input 
+                type="date" 
+                value={currentDateOverride}
+                onChange={(e) => setCurrentDateOverride(e.target.value)}
+                className="w-full text-xs p-1 rounded border border-orange-200 dark:border-orange-800 bg-white dark:bg-black"
+              />
+            </div>
+          )}
+
           <ClassCalendar 
             selectedDate={selectedSession?.date || ""} 
-            onSelectSession={setSelectedSession} 
+            onSelectSession={setSelectedSession}
+            briefedSessions={briefedSessions}
+            currentDate={currentDateOverride}
           />
+          
+          {/* View Brief Button (only if briefed) */}
+          {selectedSession && briefedSessions.includes(selectedSession.date) && (
+            <Button 
+              variant="outline" 
+              className="w-full mt-2" 
+              onClick={handleViewBrief}
+            >
+              <Eye className="w-4 h-4 mr-2" />
+              View Existing Brief
+            </Button>
+          )}
         </div>
       </div>
 
@@ -388,6 +520,26 @@ export default function Brief() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Brief Preview Sheet */}
+      <Sheet open={showPreview} onOpenChange={setShowPreview}>
+        <SheetContent className="w-[400px] sm:w-[540px] overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>Brief Preview: {previewBrief?.session_id}</SheetTitle>
+            <SheetDescription>
+              Quick look at the moves generated for this session.
+            </SheetDescription>
+          </SheetHeader>
+          
+          {previewBrief && (
+            <div className="mt-6 space-y-6">
+              <div className="prose prose-sm dark:prose-invert">
+                <Streamdown>{previewBrief.payload.markdown}</Streamdown>
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

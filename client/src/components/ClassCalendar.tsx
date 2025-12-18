@@ -1,6 +1,6 @@
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { CheckCircle2, Circle, Clock } from "lucide-react";
+import { CheckCircle2, Circle, Clock, FileText } from "lucide-react";
 import syllabus from "../lib/syllabus.json";
 
 export interface Session {
@@ -16,36 +16,40 @@ interface ClassCalendarProps {
   selectedDate: string;
   onSelectSession: (session: Session) => void;
   currentDate?: string; // Optional override for demo purposes
+  briefedSessions?: string[]; // List of session dates that have briefs
 }
 
-export function getNextSession(currentDateStr: string = new Date().toISOString().split('T')[0]): Session | null {
-  const today = new Date(currentDateStr);
-  
+// Helper to get local ISO date string (YYYY-MM-DD)
+export function getLocalISODate(d: Date = new Date()): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function getNextSession(currentDateStr: string = getLocalISODate()): Session | null {
   // Sort sessions by date
   const sortedSessions = [...syllabus.sessions].sort((a, b) => 
     new Date(a.date).getTime() - new Date(b.date).getTime()
   );
 
   // Find first session that is today or in the future
+  // Logic: If a class is TODAY, it is "Next Up" (the one you need to prep for)
   return sortedSessions.find(s => {
-    const sessionDate = new Date(s.date);
-    // Compare just the dates, ignoring time
-    return sessionDate >= today || sessionDate.toISOString().split('T')[0] === currentDateStr;
+    return s.date >= currentDateStr;
   }) || sortedSessions[sortedSessions.length - 1]; // Fallback to last session if all past
 }
 
-export function ClassCalendar({ selectedDate, onSelectSession, currentDate = new Date().toISOString().split('T')[0] }: ClassCalendarProps) {
-  const today = new Date(currentDate);
-
+export function ClassCalendar({ selectedDate, onSelectSession, currentDate = getLocalISODate(), briefedSessions = [] }: ClassCalendarProps) {
   return (
     <Card className="p-4 space-y-4">
       <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wider">Class Schedule</h3>
       <div className="space-y-2">
         {syllabus.sessions.map((session) => {
-          const sessionDate = new Date(session.date);
-          const isPast = sessionDate < today && session.date !== currentDate;
+          const isPast = session.date < currentDate;
           const isSelected = session.date === selectedDate;
           const isNext = session.date === getNextSession(currentDate)?.date;
+          const hasBrief = briefedSessions.includes(session.date);
 
           return (
             <div
@@ -57,7 +61,7 @@ export function ClassCalendar({ selectedDate, onSelectSession, currentDate = new
                 isPast && !isSelected && "opacity-60 grayscale"
               )}
             >
-              <div className="mt-0.5">
+              <div className="mt-0.5 relative">
                 {isPast ? (
                   <CheckCircle2 className="w-4 h-4 text-muted-foreground" />
                 ) : isSelected ? (
@@ -77,11 +81,19 @@ export function ClassCalendar({ selectedDate, onSelectSession, currentDate = new
                   )}>
                     {session.date}
                   </span>
-                  {isNext && (
-                    <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">
-                      NEXT UP
-                    </span>
-                  )}
+                  <div className="flex items-center gap-1">
+                    {hasBrief && (
+                      <span className="flex items-center gap-0.5 text-[10px] font-medium text-green-600 bg-green-50 px-1.5 py-0.5 rounded-full border border-green-100">
+                        <FileText className="w-3 h-3" />
+                        BRIEFED
+                      </span>
+                    )}
+                    {isNext && (
+                      <span className="text-[10px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">
+                        NEXT UP
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <h4 className={cn(
                   "text-sm font-medium leading-tight",
