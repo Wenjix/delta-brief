@@ -1,10 +1,11 @@
 import { useState, useEffect } from "react";
+import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { memoryProvider, Memory } from "@/lib/memory";
 import { seedDemoData } from "@/lib/seed";
-import { Trash2, RefreshCw, Database, Calendar, Briefcase, FileText, User, GitCompare, BookOpen, AlertTriangle, AlertCircle, Info } from "lucide-react";
+import { Trash2, RefreshCw, Database, Calendar, Briefcase, FileText, User, GitCompare, BookOpen, AlertTriangle, AlertCircle, Info, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import syllabusData from "@/lib/syllabus.json";
 
@@ -24,6 +25,7 @@ interface Session {
 }
 
 export default function History() {
+  const [, setLocation] = useLocation();
   const [memories, setMemories] = useState<Memory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [diffOpen, setDiffOpen] = useState(false);
@@ -67,6 +69,17 @@ export default function History() {
       await seedDemoData();
       await loadMemories();
       toast.success("Demo data seeded (Week A + Week B)");
+      
+      // Auto-redirect to Brief page with Dev Mode enabled for the "Next Up" session
+      // We assume the seed data sets up a scenario where the user is ready for the NEXT session
+      // The seed data typically populates past sessions.
+      // Let's find the latest session in the seed data and target the one AFTER it.
+      
+      // For now, we'll just redirect to /brief and let the user see the "Next Up" state
+      // But we'll append ?dev=1 to enable the date picker immediately
+      setTimeout(() => {
+        setLocation("/brief?dev=1");
+      }, 1000);
     }
   };
 
@@ -242,142 +255,60 @@ export default function History() {
                             </div>
                           </div>
                         </CardHeader>
-                        <CardContent className="pt-4 px-4 pb-4">
+                        <CardContent className="p-4 text-sm">
+                          {mem.episode_type === 'profile' && (
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <span className="text-xs text-muted-foreground block">Role</span>
+                                <span className="font-medium">{mem.payload.persona?.role}</span>
+                              </div>
+                              <div>
+                                <span className="text-xs text-muted-foreground block">Initiative</span>
+                                <span className="font-medium">{mem.payload.work_initiative}</span>
+                              </div>
+                            </div>
+                          )}
+                          
                           {mem.episode_type === 'work_delta' && (
                             <div className="space-y-2">
-                              <div className="text-sm font-medium text-muted-foreground">Work Changes:</div>
-                              <ul className="list-none text-sm space-y-2">
-                                {(mem.payload.work_changes as any[])?.map((change: any, i: number) => (
-                                  <li key={i} className="flex items-start gap-2">
-                                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-slate-400 shrink-0" />
-                                    <div className="flex-1">
-                                      <span className="font-medium">{change.bullet || change}</span>
-                                      <div className="mt-1">
-                                        {getImpactBadge(change.impact)}
-                                      </div>
-                                    </div>
-                                  </li>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-muted-foreground">Constraint Focus:</span>
+                                <span className="font-medium">{mem.payload.constraint_focus_this_week}</span>
+                              </div>
+                              <div className="bg-muted/50 p-2 rounded text-xs font-mono">
+                                {(mem.payload.work_changes as string[]).slice(0, 2).map((change, i) => (
+                                  <div key={i} className="truncate">• {change}</div>
                                 ))}
-                              </ul>
-                            </div>
-                          )}
-
-                          {mem.episode_type === 'brief_output' && (
-                            <div className="space-y-3">
-                              <div className="text-sm font-medium text-muted-foreground">Generated Moves:</div>
-                              <ul className="list-decimal list-inside text-sm space-y-2 pl-2 border-l-2 border-green-200 dark:border-green-900 ml-1">
-                                {(mem.payload.moves as string[])?.map((move, i) => {
-                                  // Extract framework tag if present
-                                  const frameworkMatch = move.match(/\(Framework: (.+?)\)/);
-                                  const cleanMove = move.replace(/\(Framework: .+?\)/, '').trim();
-                                  const framework = frameworkMatch ? frameworkMatch[1] : null;
-
-                                  return (
-                                    <li key={i} className="py-0.5">
-                                      <span>{cleanMove}</span>
-                                      {framework && (
-                                        <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-800">
-                                          {framework}
-                                        </span>
-                                      )}
-                                    </li>
-                                  );
-                                })}
-                              </ul>
-                              {mem.payload.open_threads && (
-                                <>
-                                  <div className="text-sm font-medium text-muted-foreground mt-2">Open Threads (carried forward):</div>
-                                  <ul className="list-disc list-inside text-xs text-muted-foreground pl-2">
-                                    {(mem.payload.open_threads as string[])?.map((thread, i) => (
-                                      <li key={i}>{thread}</li>
-                                    ))}
-                                  </ul>
-                                </>
-                              )}
-                            </div>
-                          )}
-
-                          {mem.episode_type === 'profile' && (
-                            <div className="text-sm">
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                <div><span className="text-muted-foreground">Role:</span> {mem.payload.role}</div>
-                                <div><span className="text-muted-foreground">Industry:</span> {mem.payload.industry}</div>
-                                <div className="sm:col-span-2"><span className="text-muted-foreground">Initiative:</span> {mem.payload.initiative}</div>
                               </div>
                             </div>
                           )}
 
-                          {/* Fallback for other types */}
-                          {!['work_delta', 'brief_output', 'profile'].includes(mem.episode_type) && (
-                            <pre className="text-xs font-mono bg-slate-950 text-slate-50 p-3 rounded-md overflow-x-auto">
-                              {JSON.stringify(mem.payload, null, 2)}
-                            </pre>
+                          {mem.episode_type === 'brief_output' && (
+                            <div className="space-y-2">
+                              <div className="flex flex-wrap gap-1">
+                                {(mem.payload.highlights as string[]).slice(0, 3).map((h, i) => (
+                                  <span key={i} className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-100">
+                                    {h}
+                                  </span>
+                                ))}
+                                {(mem.payload.highlights as string[]).length > 3 && (
+                                  <span className="text-[10px] text-muted-foreground px-1.5 py-0.5">
+                                    +{(mem.payload.highlights as string[]).length - 3} more
+                                  </span>
+                                )}
+                              </div>
+                            </div>
                           )}
                         </CardContent>
                       </Card>
                     ))}
                   </div>
                 </div>
-                
-                {/* Connector Line for next item */}
-                {dateIndex < sortedDates.length - 1 && (
-                  <div className="absolute left-[-1px] top-8 bottom-[-48px] w-0.5 bg-muted -z-10"></div>
-                )}
               </div>
             );
           })
         )}
       </div>
-
-      {/* Diff Dialog */}
-      <Dialog open={diffOpen} onOpenChange={setDiffOpen}>
-        <DialogContent className="max-w-4xl">
-          <DialogHeader>
-            <DialogTitle>Strategic Pivot: Week A vs. Week B</DialogTitle>
-            <DialogDescription>
-              See how the advice evolved based on new constraints and learnings.
-            </DialogDescription>
-          </DialogHeader>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-            {/* Previous Brief */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between border-b pb-2">
-                <h4 className="font-semibold text-muted-foreground">Last Week ({previousBrief?.session_id})</h4>
-              </div>
-              <div className="bg-muted/30 p-4 rounded-lg border border-dashed">
-                <ul className="list-decimal list-inside space-y-3 text-sm">
-                  {(previousBrief?.payload.moves as string[])?.map((move, i) => (
-                    <li key={i} className="text-muted-foreground">{move}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-
-            {/* Current Brief */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between border-b pb-2">
-                <h4 className="font-semibold text-primary">This Week ({selectedBrief?.session_id})</h4>
-              </div>
-              <div className="bg-primary/5 p-4 rounded-lg border border-primary/20">
-                <ul className="list-decimal list-inside space-y-3 text-sm">
-                  {(selectedBrief?.payload.moves as string[])?.map((move, i) => (
-                    <li key={i} className="font-medium">{move}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-md mt-4 text-sm text-blue-800 dark:text-blue-200 flex gap-3">
-            <GitCompare className="h-5 w-5 shrink-0" />
-            <div>
-              <p className="font-bold">Compounding Insight:</p>
-              <p>Notice how the advice shifted from "Isolate data" (Week A) to "Engage union" (Week B) because the legal blocker forced a pivot to stakeholder management.</p>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

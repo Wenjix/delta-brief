@@ -11,7 +11,7 @@ import { memoryProvider, Memory } from "@/lib/memory";
 import { generateBrief, BriefGenerationResult, DEFAULT_SYSTEM_PROMPT, DEFAULT_USER_PROMPT_TEMPLATE } from "@/lib/llm";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
-import { Loader2, ThumbsUp, ThumbsDown, Clock, CheckCircle, AlertTriangle, Settings2, RotateCcw, Eye, Calendar } from "lucide-react";
+import { Loader2, ThumbsUp, ThumbsDown, Clock, CheckCircle, AlertTriangle, Settings2, RotateCcw, Eye, Calendar, ArrowRight, SplitSquareHorizontal, BookOpen, GraduationCap } from "lucide-react";
 import { ClassCalendar, getNextSession, Session, getLocalISODate } from "@/components/ClassCalendar";
 import syllabus from "@/lib/syllabus.json";
 
@@ -32,9 +32,13 @@ export default function Brief() {
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [briefedSessions, setBriefedSessions] = useState<string[]>([]);
 
-  // Brief Preview State
+  // Brief Preview & Compare State
   const [previewBrief, setPreviewBrief] = useState<Memory | null>(null);
+  const [compareBrief, setCompareBrief] = useState<Memory | null>(null); // Previous brief for comparison
   const [showPreview, setShowPreview] = useState(false);
+  const [isCompareMode, setIsCompareMode] = useState(false);
+  const [deltaSummary, setDeltaSummary] = useState<{ resolved: string[], new: string[], progress: string[] } | null>(null);
+  const [previewSyllabus, setPreviewSyllabus] = useState<any>(null);
 
   // Dev Mode State
   const [showDevDate, setShowDevDate] = useState(false);
@@ -74,9 +78,57 @@ export default function Brief() {
     }
   }, [selectedSession, briefedSessions]);
 
-  const handleViewBrief = async () => {
+  const generateDeltaSummary = (prevBrief: Memory, currentBrief: Memory) => {
+    // Deterministic Delta Summary Logic
+    const prevMarkdown = prevBrief.payload.markdown as string;
+    const currentMarkdown = currentBrief.payload.markdown as string;
+    
+    const summary = {
+      resolved: [] as string[],
+      new: [] as string[],
+      progress: [] as string[]
+    };
+
+    // 1. Extract Open Threads from Previous Brief
+    const openThreadRegex = /Open Thread Update: Previously: (.+?) -> Now: (.+?) -> Update: (.+?)$/gm;
+    // We actually need to find where these threads *went* in the new brief
+    // But for the summary, we look at the NEW brief's "Open Thread Update" lines
+    // because those lines describe the resolution of OLD threads.
+    
+    let match;
+    while ((match = openThreadRegex.exec(currentMarkdown)) !== null) {
+      // match[1] = Old Plan, match[2] = New Reality, match[3] = Update
+      summary.resolved.push(`${match[1]} → ${match[3]}`);
+    }
+
+    // 2. Identify New High-Impact Items (Heuristic: Top Move in New Brief)
+    const moveRegex = /^\d+\)\s*Move:\s*(.+?)\s*\(Framework:/gm;
+    const firstMoveMatch = moveRegex.exec(currentMarkdown);
+    if (firstMoveMatch) {
+      summary.new.push(`${firstMoveMatch[1]} (Top Priority)`);
+    }
+
+    // 3. Progress (Heuristic: Check for "cadence", "committee", "meeting" in moves)
+    const progressKeywords = ["cadence", "committee", "meeting", "approval", "signed"];
+    const moves = currentMarkdown.split("Move:");
+    moves.shift(); // remove preamble
+    
+    moves.forEach(move => {
+      if (progressKeywords.some(k => move.toLowerCase().includes(k))) {
+        const title = move.split("(")[0].trim();
+        if (!summary.new.includes(`${title} (Top Priority)`)) {
+           summary.progress.push(title);
+        }
+      }
+    });
+
+    return summary;
+  };
+
+  const handleViewBrief = async (compare: boolean = false) => {
     if (!selectedSession) return;
     try {
+      // Fetch CURRENT brief
       const briefs = await memoryProvider.search("", { 
         episode_type: ["brief_output"],
         session_id: [selectedSession.date]
@@ -84,6 +136,40 @@ export default function Brief() {
       
       if (briefs.length > 0) {
         setPreviewBrief(briefs[0]);
+        
+        // Find syllabus details for this session
+        const sessionDetails = syllabus.sessions.find(s => s.date === selectedSession.date);
+        setPreviewSyllabus(sessionDetails || null);
+        
+        if (compare) {
+          // Fetch PREVIOUS brief for comparison
+          const sortedSessions = [...syllabus.sessions].sort((a, b) => 
+            new Date(a.date).getTime() - new Date(b.date).getTime()
+          );
+          const currentIndex = sortedSessions.findIndex(s => s.date === selectedSession.date);
+          const previousSession = currentIndex > 0 ? sortedSessions[currentIndex - 1] : null;
+
+          if (previousSession) {
+            const prevBriefs = await memoryProvider.search("", { 
+              episode_type: ["brief_output"],
+              session_id: [previousSession.date]
+            }, 1);
+            
+            if (prevBriefs.length > 0) {
+              setCompareBrief(prevBriefs[0]);
+              setDeltaSummary(generateDeltaSummary(prevBriefs[0], briefs[0]));
+            } else {
+              setCompareBrief(null);
+              setDeltaSummary(null);
+              toast.info("No previous brief found to compare with.");
+            }
+          }
+          setIsCompareMode(true);
+        } else {
+          setIsCompareMode(false);
+          setCompareBrief(null);
+        }
+        
         setShowPreview(true);
       } else {
         toast.error("No brief found for this session.");
@@ -277,14 +363,24 @@ export default function Brief() {
           
           {/* View Brief Button (only if briefed) */}
           {selectedSession && briefedSessions.includes(selectedSession.date) && (
-            <Button 
-              variant="outline" 
-              className="w-full mt-2" 
-              onClick={handleViewBrief}
-            >
-              <Eye className="w-4 h-4 mr-2" />
-              View Existing Brief
-            </Button>
+            <div className="grid grid-cols-2 gap-2 mt-2">
+              <Button 
+                variant="outline" 
+                className="w-full" 
+                onClick={() => handleViewBrief(false)}
+              >
+                <Eye className="w-4 h-4 mr-2" />
+                View
+              </Button>
+              <Button 
+                variant="outline" 
+                className="w-full" 
+                onClick={() => handleViewBrief(true)}
+              >
+                <SplitSquareHorizontal className="w-4 h-4 mr-2" />
+                Compare
+              </Button>
+            </div>
           )}
         </div>
       </div>
@@ -521,23 +617,138 @@ export default function Brief() {
         </DialogContent>
       </Dialog>
 
-      {/* Brief Preview Sheet */}
+      {/* Brief Preview & Compare Sheet */}
       <Sheet open={showPreview} onOpenChange={setShowPreview}>
-        <SheetContent className="w-[400px] sm:w-[540px] overflow-y-auto">
+        <SheetContent className={`overflow-y-auto ${isCompareMode ? 'w-[90vw] sm:w-[90vw] max-w-[1200px]' : 'w-[400px] sm:w-[540px]'}`}>
           <SheetHeader>
-            <SheetTitle>Brief Preview: {previewBrief?.session_id}</SheetTitle>
+            <SheetTitle className="flex items-center gap-2">
+              {isCompareMode ? (
+                <>
+                  <span>Brief Comparison</span>
+                  <span className="text-muted-foreground font-normal text-sm">
+                    ({compareBrief?.session_id} vs {previewBrief?.session_id})
+                  </span>
+                </>
+              ) : (
+                <span>Brief Preview: {previewBrief?.session_id}</span>
+              )}
+            </SheetTitle>
             <SheetDescription>
-              Quick look at the moves generated for this session.
+              {isCompareMode 
+                ? "Review progress and changes between sessions." 
+                : "Quick look at the moves generated for this session."}
             </SheetDescription>
           </SheetHeader>
           
-          {previewBrief && (
-            <div className="mt-6 space-y-6">
-              <div className="prose prose-sm dark:prose-invert">
-                <Streamdown>{previewBrief.payload.markdown}</Streamdown>
+          {isCompareMode && deltaSummary && (
+            <div className="mt-6 mb-8 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <h3 className="text-sm font-bold uppercase tracking-wider text-blue-800 dark:text-blue-200 mb-3 flex items-center gap-2">
+                <RotateCcw className="w-4 h-4" />
+                Delta Summary (Since {compareBrief?.session_id})
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div>
+                  <span className="font-semibold text-green-700 dark:text-green-400 block mb-1">Resolved / Updated</span>
+                  {deltaSummary.resolved.length > 0 ? (
+                    <ul className="list-disc pl-4 space-y-1 text-muted-foreground">
+                      {deltaSummary.resolved.map((item, i) => <li key={i}>{item}</li>)}
+                    </ul>
+                  ) : <span className="text-muted-foreground italic">None</span>}
+                </div>
+                <div>
+                  <span className="font-semibold text-purple-700 dark:text-purple-400 block mb-1">New Priorities</span>
+                  {deltaSummary.new.length > 0 ? (
+                    <ul className="list-disc pl-4 space-y-1 text-muted-foreground">
+                      {deltaSummary.new.map((item, i) => <li key={i}>{item}</li>)}
+                    </ul>
+                  ) : <span className="text-muted-foreground italic">None</span>}
+                </div>
+                <div>
+                  <span className="font-semibold text-orange-700 dark:text-orange-400 block mb-1">In Progress</span>
+                  {deltaSummary.progress.length > 0 ? (
+                    <ul className="list-disc pl-4 space-y-1 text-muted-foreground">
+                      {deltaSummary.progress.map((item, i) => <li key={i}>{item}</li>)}
+                    </ul>
+                  ) : <span className="text-muted-foreground italic">None</span>}
+                </div>
               </div>
             </div>
           )}
+
+          <div className={`mt-6 ${isCompareMode ? 'grid grid-cols-2 gap-8' : ''}`}>
+            {isCompareMode && compareBrief && (
+              <div className="space-y-4">
+                <div className="font-mono text-xs uppercase text-muted-foreground border-b pb-2">
+                  Previous: {compareBrief.session_id}
+                </div>
+                <div className="prose prose-sm dark:prose-invert max-w-none opacity-75">
+                  <Streamdown>{compareBrief.payload.markdown}</Streamdown>
+                </div>
+              </div>
+            )}
+
+            {previewBrief && (
+              <div className="space-y-4">
+                {isCompareMode && (
+                  <div className="font-mono text-xs uppercase text-primary font-bold border-b pb-2">
+                    Current: {previewBrief.session_id}
+                  </div>
+                )}
+                
+                {/* Academic Context Block */}
+                {previewSyllabus && !isCompareMode && (
+                  <div className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4 mb-4">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2 flex items-center gap-2">
+                      <GraduationCap className="w-3 h-3" />
+                      Academic Context
+                    </h4>
+                    <div className="space-y-3">
+                      <div>
+                        <span className="text-xs font-semibold block text-slate-700 dark:text-slate-300">Frameworks</span>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {previewSyllabus.frameworks.map((f: any, i: number) => (
+                            <span key={i} className="text-[10px] px-1.5 py-0.5 bg-slate-200 dark:bg-slate-800 rounded text-slate-600 dark:text-slate-400">
+                              {f.name}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <span className="text-xs font-semibold block text-slate-700 dark:text-slate-300">Objectives</span>
+                        <ul className="list-disc pl-3 mt-1 space-y-0.5">
+                          {previewSyllabus.learning_objectives.slice(0, 2).map((o: string, i: number) => (
+                            <li key={i} className="text-[10px] text-slate-600 dark:text-slate-400 leading-tight">{o}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="prose prose-sm dark:prose-invert max-w-none">
+                  <Streamdown>{previewBrief.payload.markdown}</Streamdown>
+                </div>
+
+                {/* Memory Highlights Chips */}
+                {previewBrief.payload.highlights && (previewBrief.payload.highlights as string[]).length > 0 && (
+                  <div className="pt-4 border-t mt-4">
+                    <span className="text-xs font-mono uppercase text-muted-foreground block mb-2">Memory Used:</span>
+                    <div className="flex flex-wrap gap-2">
+                      {(previewBrief.payload.highlights as string[]).map((highlight, i) => (
+                        <span 
+                          key={i} 
+                          className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 border border-blue-100 dark:border-blue-800"
+                        >
+                          <BookOpen className="w-3 h-3 mr-1 opacity-50" />
+                          {highlight}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </SheetContent>
       </Sheet>
     </div>
