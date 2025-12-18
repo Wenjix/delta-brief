@@ -11,7 +11,7 @@ import { memoryProvider, Memory } from "@/lib/memory";
 import { generateBrief, BriefGenerationResult, DEFAULT_SYSTEM_PROMPT, DEFAULT_USER_PROMPT_TEMPLATE } from "@/lib/llm";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
-import { Loader2, ThumbsUp, ThumbsDown, Clock, CheckCircle, AlertTriangle, AlertCircle, Settings2, RotateCcw, Eye, Calendar, ArrowRight, SplitSquareHorizontal, BookOpen, GraduationCap, X, Maximize2, Minimize2, LayoutTemplate, FileText, MoveRight, ArrowDownRight } from "lucide-react";
+import { Loader2, ThumbsUp, ThumbsDown, Clock, CheckCircle, AlertTriangle, AlertCircle, Settings2, RotateCcw, Eye, Calendar, ArrowRight, SplitSquareHorizontal, BookOpen, GraduationCap, X, Maximize2, Minimize2, LayoutTemplate, FileText, MoveRight, ArrowDownRight, MessageSquarePlus, Save } from "lucide-react";
 import { ClassCalendar, getNextSession, Session, getLocalISODate } from "@/components/ClassCalendar";
 import syllabus from "@/lib/syllabus.json";
 
@@ -40,6 +40,11 @@ export default function Brief() {
   const [deltaSummary, setDeltaSummary] = useState<{ resolved: string[], new: string[], progress: string[] } | null>(null);
   const [previewSyllabus, setPreviewSyllabus] = useState<any>(null);
   const [viewMode, setViewMode] = useState<'executive' | 'full'>('executive');
+
+  // Note State
+  const [noteText, setNoteText] = useState("");
+  const [isSavingNote, setIsSavingNote] = useState(false);
+  const [savedNotes, setSavedNotes] = useState<Memory[]>([]);
 
   // Dev Mode State
   const [showDevDate, setShowDevDate] = useState(false);
@@ -78,6 +83,33 @@ export default function Brief() {
       // We could auto-load it, but let's just make it available via a button
     }
   }, [selectedSession, briefedSessions]);
+
+  // Fetch notes when previewing a brief
+  useEffect(() => {
+    const fetchNotes = async () => {
+      if (previewBrief && selectedSession) {
+        try {
+          const notes = await memoryProvider.search("", { 
+            episode_type: ["feedback"],
+            session_id: [selectedSession.date]
+          }, 20);
+          // Filter for notes specifically (feedback type is used for both thumbs up/down and notes)
+          // Assuming notes have a specific payload structure or we just show all feedback
+          // For now, let's assume all feedback for this session are notes if they have 'note' in payload
+          const noteMemories = notes.filter(n => n.payload.note);
+          setSavedNotes(noteMemories);
+        } catch (err) {
+          console.error("Failed to fetch notes", err);
+        }
+      } else {
+        setSavedNotes([]);
+      }
+    };
+    
+    if (showPreview) {
+      fetchNotes();
+    }
+  }, [previewBrief, selectedSession, showPreview]);
 
   const generateDeltaSummary = (prevBrief: Memory, currentBrief: Memory) => {
     // Deterministic Delta Summary Logic using Structured Data
@@ -317,6 +349,47 @@ export default function Brief() {
   const handleFeedback = () => {
     setFeedbackSubmitted(true);
     toast.success("Feedback recorded. The model will learn from this.");
+  };
+
+  const handleSaveNote = async () => {
+    if (!noteText.trim() || !selectedSession) return;
+    
+    setIsSavingNote(true);
+    try {
+      const newNote = {
+        episode_type: "feedback" as const,
+        session_id: selectedSession.date,
+        user_id: "demo-user",
+        org_id: "demo-org",
+        project_id: "demo-project",
+        tags: ["user-note"],
+        payload: {
+          note: noteText,
+          timestamp: new Date().toISOString()
+        }
+      };
+      
+      await memoryProvider.add(newNote);
+      
+      // Optimistically update UI
+      // We need a full Memory object for the state, so we mock the missing fields
+      const mockSavedNote: Memory = {
+        ...newNote,
+        id: "temp-" + Date.now(),
+        created_at: new Date().toISOString(),
+        kind: "patched.memory",
+        v: 1
+      };
+      
+      setSavedNotes([mockSavedNote, ...savedNotes]);
+      setNoteText("");
+      toast.success("Note saved to memory.");
+    } catch (err) {
+      console.error("Failed to save note", err);
+      toast.error("Failed to save note.");
+    } finally {
+      setIsSavingNote(false);
+    }
   };
 
   return (
@@ -878,6 +951,58 @@ export default function Brief() {
                       <div className="prose prose-sm dark:prose-invert max-w-none">
                         <Streamdown>{previewBrief.payload.markdown as string}</Streamdown>
                       </div>
+
+                      {/* Add Note Section */}
+                      {!isCompareMode && (
+                        <div className="mt-8 pt-6 border-t">
+                          <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                            <MessageSquarePlus className="h-4 w-4" />
+                            Add a Note
+                          </h4>
+                          <div className="space-y-3">
+                            <Textarea 
+                              placeholder="Capture a thought, correction, or follow-up item..."
+                              value={noteText}
+                              onChange={(e) => setNoteText(e.target.value)}
+                              className="min-h-[80px] text-sm"
+                            />
+                            <div className="flex justify-end">
+                              <Button 
+                                size="sm" 
+                                onClick={handleSaveNote} 
+                                disabled={!noteText.trim() || isSavingNote}
+                              >
+                                {isSavingNote ? (
+                                  <>
+                                    <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                                    Saving...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Save className="mr-2 h-3 w-3" />
+                                    Save Note
+                                  </>
+                                )}
+                              </Button>
+                            </div>
+                          </div>
+
+                          {/* Saved Notes List */}
+                          {savedNotes.length > 0 && (
+                            <div className="mt-6 space-y-3">
+                              <h5 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Saved Notes</h5>
+                              {savedNotes.map((note) => (
+                                <div key={note.id} className="bg-secondary/30 p-3 rounded-md text-sm border">
+                                  <p>{note.payload.note}</p>
+                                  <div className="mt-1 text-[10px] text-muted-foreground">
+                                    {new Date(note.payload.timestamp).toLocaleString()}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
