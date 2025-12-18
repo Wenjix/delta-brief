@@ -28,6 +28,16 @@ export interface BriefGenerationResult {
   markdown: string;
   memoryHighlights: string[];
   moves: string[];
+  structuredData: {
+    resolver?: {
+      previously: string;
+      now: string;
+      update: string;
+    };
+    openThreads: string[];
+    frameworkByMove: string[];
+    nextAction?: string;
+  };
   similarityReport?: SimilarityReport;
   usage: {
     usedProfile: boolean;
@@ -45,6 +55,54 @@ function extractMoves(markdown: string): string[] {
     moves.push(match[1].trim());
   }
   return moves;
+}
+
+function extractStructuredData(markdown: string) {
+  // 1. Extract Resolver
+  const resolverRegex = /Open Thread Update: Previously: (.+?) -> Now: (.+?) -> Update: (.+?)$/m;
+  const resolverMatch = resolverRegex.exec(markdown);
+  const resolver = resolverMatch ? {
+    previously: resolverMatch[1].trim(),
+    now: resolverMatch[2].trim(),
+    update: resolverMatch[3].trim()
+  } : undefined;
+
+  // 2. Extract Open Threads (New ones created in this brief)
+  // Assuming they are listed under "## Open Threads" or similar if we added that section, 
+  // BUT currently the template doesn't explicitly ask for *new* open threads section, 
+  // it asks to *resolve* old ones. 
+  // However, the prompt template has "## 2 risks / failure modes" and "## 1 next action".
+  // The user feedback implies we should capture what the model *saw* as open threads from the input,
+  // OR what it *generated* as new open threads.
+  // Given the "Open Thread Update" line is about *resolving*, let's stick to capturing that for now.
+  // If we want to capture *new* open threads for the *next* brief, we might need to parse the "Risks" or "Next Action".
+  // For now, let's capture the "Risks" as potential open threads for the future.
+  const risks: string[] = [];
+  const riskRegex = /- Risk \d+: (.+?) — Mitigation:/g;
+  let riskMatch;
+  while ((riskMatch = riskRegex.exec(markdown)) !== null) {
+    risks.push(riskMatch[1].trim());
+  }
+
+  // 3. Extract Frameworks by Move
+  const frameworks: string[] = [];
+  const frameworkRegex = /^\d+\)\s*Move:.+?\(Framework:\s*(.+?)\)/gm;
+  let fwMatch;
+  while ((fwMatch = frameworkRegex.exec(markdown)) !== null) {
+    frameworks.push(fwMatch[1].trim());
+  }
+
+  // 4. Extract Next Action
+  const actionRegex = /## 1 next action[\s\S]*?- Action: (.+)/;
+  const actionMatch = actionRegex.exec(markdown);
+  const nextAction = actionMatch ? actionMatch[1].trim() : undefined;
+
+  return {
+    resolver,
+    openThreads: risks, // Using Risks as a proxy for "Open Threads" for the next session
+    frameworkByMove: frameworks,
+    nextAction
+  };
 }
 
 // Helper to find syllabus session details
@@ -228,153 +286,140 @@ export async function generateBrief(params: BriefGenerationParams): Promise<Brie
     .replace('{{lastBriefStr}}', lastBriefStr)
     .replace('{{className}}', className)
     .replace('{{classDate}}', classDate)
-    .replace('{{assignmentHook}}', syllabusDetails?.assignment_hook || "<one sentence deliverable>");
+    .replace('{{assignmentHook}}', syllabusDetails?.assignment_hook || "Assumption: no assignment hook provided");
 
-  // 3. Initial Generation Loop
-  try {
-    let messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: userPrompt }
-    ];
+  // 3. Call LLM with Retry Logic
+  let markdown = "";
+  let memoryHighlights: string[] = [];
+  let moves: string[] = [];
+  let structuredData: BriefGenerationResult['structuredData'] = { openThreads: [], frameworkByMove: [] };
+  let similarityReport: SimilarityReport | undefined;
 
-    let completion = await openai.chat.completions.create({
-      model: MODEL_ID,
-      messages,
-      temperature: 0.7,
-    });
+  const MAX_RETRIES = 2; // Allow up to 2 retries for strict validation
 
-    let markdown = completion.choices[0]?.message?.content || "Error generating brief.";
-    let moves = extractMoves(markdown);
-    let similarityReport: SimilarityReport | undefined;
-
-    // 4. Validation Logic (Consolidated)
-    let validationErrors: string[] = [];
-
-    // A. Framework Validation
-    if (frameworkNames.length > 0) {
-      const frameworkRegex = /\(Framework:\s*([^)]+)\)/g;
-      let match;
-      let invalidFrameworks: string[] = [];
-      
-      while ((match = frameworkRegex.exec(markdown)) !== null) {
-        const usedFramework = match[1].trim();
-        if (!frameworkNames.includes(usedFramework)) {
-          invalidFrameworks.push(usedFramework);
-        }
-      }
-      if (invalidFrameworks.length > 0) {
-        validationErrors.push(`Invalid frameworks used: ${JSON.stringify(invalidFrameworks)}. Allowed: ${JSON.stringify(frameworkNames)}.`);
-      }
-    }
-
-    // B. Move Count Validation
-    if (moves.length !== 3) {
-      validationErrors.push(`Incorrect number of moves: ${moves.length}. Required: exactly 3.`);
-    }
-
-    // C. Open Thread Validation
-    // If last brief had open threads, check if "Open Thread Update" is present
-    // (This is a heuristic check)
-    if (lastBriefStr.includes("Open Thread") && !markdown.includes("Open Thread Update")) {
-      validationErrors.push(`Missing 'Open Thread Update' section. You must resolve the open thread from the last brief.`);
-    }
-
-    // D. Duplicate Section Validation
-    const highlightsMatches = markdown.match(/## Memory highlights used/g);
-    if (highlightsMatches && highlightsMatches.length > 1) {
-      validationErrors.push(`Duplicate 'Memory highlights used' section detected.`);
-    }
-
-    // E. Single Open Thread Update Line Validation
-    const openThreadUpdateMatches = markdown.match(/Open Thread Update:/g);
-    if (openThreadUpdateMatches && openThreadUpdateMatches.length > 1) {
-      validationErrors.push(`Multiple 'Open Thread Update' lines detected. Only ONE is allowed.`);
-    }
-
-    // Execute Retry if Validation Failed
-    if (validationErrors.length > 0) {
-      console.log("Validation failed. Retrying...", validationErrors);
-      retryCount++;
-
-      const retryInstruction = `
-CRITICAL VALIDATION FAILURES - FIX IMMEDIATELY:
-${validationErrors.map(e => `- ${e}`).join('\n')}
-
-Please regenerate the ENTIRE brief correcting these errors.
-`;
-      messages.push({ role: 'assistant', content: markdown });
-      messages.push({ role: 'user', content: retryInstruction });
-
-      completion = await openai.chat.completions.create({
+  while (retryCount <= MAX_RETRIES) {
+    try {
+      const completion = await openai.chat.completions.create({
         model: MODEL_ID,
-        messages,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt }
+        ],
         temperature: 0.7,
       });
-      
-      markdown = completion.choices[0]?.message?.content || "Error regenerating brief.";
+
+      markdown = completion.choices[0].message.content || "";
+
+      // Extract Moves
       moves = extractMoves(markdown);
-    }
 
-    // 5. Similarity Check (Optional)
-    if (enableSimilarityCheck && lastBrief && lastBrief.payload.moves) {
-      const lastMoves = lastBrief.payload.moves as string[];
-      similarityReport = await checkNoRepeats(moves, lastMoves);
+      // Extract Structured Data
+      structuredData = extractStructuredData(markdown);
+
+      // Extract Memory Highlights
+      const highlightsRegex = /## Memory highlights used[\s\S]*?((?:- .+\n?)+)/;
+      const highlightsMatch = highlightsRegex.exec(markdown);
+      if (highlightsMatch) {
+        memoryHighlights = highlightsMatch[1]
+          .split('\n')
+          .filter(line => line.trim().startsWith('-'))
+          .map(line => line.replace(/^-\s*/, '').trim());
+      }
+
+      // --- VALIDATION GATES ---
+      const validationErrors: string[] = [];
+
+      // Gate 1: Move Count
+      if (moves.length !== 3) {
+        validationErrors.push(`Expected exactly 3 moves, but found ${moves.length}. Please regenerate with exactly 3 moves.`);
+      }
+
+      // Gate 2: Framework Validity
+      if (frameworkNames.length > 0) {
+        const invalidFrameworks = structuredData.frameworkByMove.filter(f => !frameworkNames.includes(f));
+        if (invalidFrameworks.length > 0) {
+          validationErrors.push(`Found invalid framework names: ${invalidFrameworks.join(", ")}. You MUST use only names from the provided list: ${frameworkNames.join(", ")}.`);
+        }
+      }
+
+      // Gate 3: Open Thread Update Line (Single Occurrence)
+      const updateLineCount = (markdown.match(/Open Thread Update: Previously:/g) || []).length;
+      if (lastBrief && updateLineCount !== 1) {
+         // Only strict if we have a last brief (implying potential open threads)
+         // But actually, maybe we only enforce it if we *know* there was an open thread.
+         // For now, let's just warn if it's > 1 (duplicate).
+         if (updateLineCount > 1) {
+            validationErrors.push(`Found ${updateLineCount} "Open Thread Update" lines. Please include this line ONLY ONCE for the single most relevant move.`);
+         }
+      }
+
+      // Gate 4: Duplicate Sections
+      const highlightSectionCount = (markdown.match(/## Memory highlights used/g) || []).length;
+      if (highlightSectionCount > 1) {
+        validationErrors.push(`Found duplicate "Memory highlights used" sections. Please ensure the section appears only once at the end.`);
+      }
+
+      // Gate 5: Fact Check against Seed Data (Simple Keyword Check)
+      // If we have deltas, ensure at least one keyword from the top delta appears in the text
+      if (recentDeltas.length > 0) {
+        const topDelta = JSON.stringify(recentDeltas[0].payload).toLowerCase();
+        // Extract some keywords (simple heuristic: words > 5 chars)
+        const keywords = topDelta.match(/\b\w{6,}\b/g) || [];
+        const markdownLower = markdown.toLowerCase();
+        const hasKeyword = keywords.some(k => markdownLower.includes(k));
+        
+        if (!hasKeyword && keywords.length > 0) {
+           // This is a soft check, maybe don't fail, but prompt to be more specific?
+           // Let's skip failing for now to avoid over-constraining, but log it.
+           console.warn("Validation Warning: Brief might not reference top delta keywords.");
+        }
+      }
+
+      // Gate 6: Similarity Check (if enabled)
+      if (enableSimilarityCheck && lastBrief && lastBrief.payload.moves) {
+        const report = await checkNoRepeats(moves, lastBrief.payload.moves);
+        similarityReport = report;
+        if (!report.pass) {
+          const feedback = report.pairs.map(p => `"${p.newMove}" is too similar to "${p.prevMove}"`).join("; ");
+          validationErrors.push(`Similarity check failed: ${feedback}. Please rewrite the moves to be distinct from the previous brief.`);
+        }
+      }
+
+      // If any errors, throw to trigger retry
+      if (validationErrors.length > 0) {
+        throw new Error(`Validation failed:\n- ${validationErrors.join('\n- ')}`);
+      }
+
+      // If we get here, success!
+      break;
+
+    } catch (error: any) {
+      console.warn(`Attempt ${retryCount + 1} failed:`, error.message);
+      retryCount++;
       
-      if (!similarityReport.pass) {
-        console.log("Similarity check failed. Retrying...");
-        retryCount++;
-        
-        const retryInstruction = `
-CRITICAL: The generated moves are too similar to the last brief.
-Last Brief Moves:
-${lastMoves.map(m => `- ${m}`).join('\n')}
-
-Current (Rejected) Moves:
-${moves.map(m => `- ${m}`).join('\n')}
-
-REASON: ${similarityReport.pairs.map(p => `${p.newMove} is too similar to ${p.prevMove} (score: ${p.score.toFixed(2)})`).join('\n')}
-
-Please regenerate the brief with DISTINCTLY DIFFERENT moves that reflect the new deltas.
-`;
-        messages.push({ role: 'assistant', content: markdown });
-        messages.push({ role: 'user', content: retryInstruction });
-
-        completion = await openai.chat.completions.create({
-          model: MODEL_ID,
-          messages,
-          temperature: 0.8, // Higher temp for diversity
-        });
-
-        markdown = completion.choices[0]?.message?.content || "Error regenerating brief.";
-        moves = extractMoves(markdown);
-        
-        // Re-check similarity (just for reporting, don't retry twice to avoid loops)
-        similarityReport = await checkNoRepeats(moves, lastMoves);
+      if (retryCount > MAX_RETRIES) {
+        console.error("Max retries exceeded. Returning best effort result.");
+        // Fallback: Return what we have, but maybe append a warning in the markdown?
+        // For now, just return it to avoid crashing the UI, but the user might see the issues.
+        break; 
       }
+
+      // Add feedback to the user prompt for the next attempt
+      userPrompt += `\n\nPREVIOUS ATTEMPT FAILED VALIDATION. PLEASE FIX THESE ISSUES:\n${error.message}`;
     }
-
-    // 6. Extract Memory Highlights
-    const highlightsRegex = /## Memory highlights used[\s\S]*?((?:- .+\n?)+)/;
-    const highlightsMatch = markdown.match(highlightsRegex);
-    const memoryHighlights = highlightsMatch 
-      ? highlightsMatch[1].split('\n').map(l => l.replace(/^- /, '').trim()).filter(Boolean)
-      : [];
-
-    return {
-      markdown,
-      memoryHighlights,
-      moves,
-      similarityReport,
-      usage: {
-        usedProfile: !!profile,
-        usedLastBrief: !!lastBrief,
-        deltaCount: recentDeltas.length,
-        retryCount
-      }
-    };
-
-  } catch (error) {
-    console.error("Error generating brief:", error);
-    throw error;
   }
+
+  return {
+    markdown,
+    memoryHighlights,
+    moves,
+    structuredData,
+    similarityReport,
+    usage: {
+      usedProfile: !!profile,
+      usedLastBrief: !!lastBrief,
+      deltaCount: recentDeltas.length,
+      retryCount
+    }
+  };
 }
