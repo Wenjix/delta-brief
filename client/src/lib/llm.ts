@@ -134,6 +134,7 @@ CRITICAL INSTRUCTION (must follow):
 3) You MUST dedicate at least one Move to explicitly resolving the affected Open Thread.
    - The resolution MUST appear as a sub-bullet under that Move using this exact format:
      - Open Thread Update: Previously: [Old Plan] -> Now: [New Reality] -> Update: [New Plan]
+   - IMPORTANT: Include this line ONLY ONCE in the entire document.
 
 FRAMEWORK CONSTRAINT:
 - For EACH Move, the framework name MUST exactly match one item from the KEY FRAMEWORKS list in {{syllabusStr}}.
@@ -284,6 +285,12 @@ export async function generateBrief(params: BriefGenerationParams): Promise<Brie
       validationErrors.push(`Duplicate 'Memory highlights used' section detected.`);
     }
 
+    // E. Single Open Thread Update Line Validation
+    const openThreadUpdateMatches = markdown.match(/Open Thread Update:/g);
+    if (openThreadUpdateMatches && openThreadUpdateMatches.length > 1) {
+      validationErrors.push(`Multiple 'Open Thread Update' lines detected. Only ONE is allowed.`);
+    }
+
     // Execute Retry if Validation Failed
     if (validationErrors.length > 0) {
       console.log("Validation failed. Retrying...", validationErrors);
@@ -301,79 +308,73 @@ Please regenerate the ENTIRE brief correcting these errors.
       completion = await openai.chat.completions.create({
         model: MODEL_ID,
         messages,
-        temperature: 0.5, // Lower temp for strict compliance
+        temperature: 0.7,
       });
-
-      markdown = completion.choices[0]?.message?.content || "Error generating brief.";
+      
+      markdown = completion.choices[0]?.message?.content || "Error regenerating brief.";
       moves = extractMoves(markdown);
     }
 
-    // 5. Similarity Check & Retry Logic (only if validation passed or after retry)
-    // Note: We prioritize validation fixes first. If similarity fails, we do a second retry pass.
-    if (enableSimilarityCheck && isPersonalized && lastBrief && lastBrief.payload.moves) {
-      const prevMoves = lastBrief.payload.moves as string[];
+    // 5. Similarity Check (Optional)
+    if (enableSimilarityCheck && lastBrief && lastBrief.payload.moves) {
+      const lastMoves = lastBrief.payload.moves as string[];
+      similarityReport = await checkNoRepeats(moves, lastMoves);
       
-      // First check
-      similarityReport = checkNoRepeats(prevMoves, moves);
-
       if (!similarityReport.pass) {
-        console.log("Similarity check failed. Retrying...", similarityReport);
+        console.log("Similarity check failed. Retrying...");
         retryCount++;
-
-        // Construct retry prompt
-        const retryInstruction = `
-Repeat-avoidance constraint:
-Do NOT reuse or closely paraphrase these previous Move titles:
-${prevMoves.map(m => `- ${m}`).join('\n')}
-
-Your new 3 Move titles must be materially different in topic and wording.
-If you reference an earlier theme, change the angle and explicitly state “what changed” as the novelty.
-`;
         
-        // Append retry instruction to conversation history
+        const retryInstruction = `
+CRITICAL: The generated moves are too similar to the last brief.
+Last Brief Moves:
+${lastMoves.map(m => `- ${m}`).join('\n')}
+
+Current (Rejected) Moves:
+${moves.map(m => `- ${m}`).join('\n')}
+
+REASON: ${similarityReport.pairs.map(p => `${p.newMove} is too similar to ${p.prevMove} (score: ${p.score.toFixed(2)})`).join('\n')}
+
+Please regenerate the brief with DISTINCTLY DIFFERENT moves that reflect the new deltas.
+`;
         messages.push({ role: 'assistant', content: markdown });
         messages.push({ role: 'user', content: retryInstruction });
 
-        // Retry generation
         completion = await openai.chat.completions.create({
           model: MODEL_ID,
           messages,
-          temperature: 0.8, // Slightly higher temp for variety
+          temperature: 0.8, // Higher temp for diversity
         });
 
-        markdown = completion.choices[0]?.message?.content || "Error generating brief.";
+        markdown = completion.choices[0]?.message?.content || "Error regenerating brief.";
         moves = extractMoves(markdown);
         
-        // Re-check (but don't retry again, just report)
-        similarityReport = checkNoRepeats(prevMoves, moves);
+        // Re-check similarity (just for reporting, don't retry twice to avoid loops)
+        similarityReport = await checkNoRepeats(moves, lastMoves);
       }
     }
 
     // 6. Extract Memory Highlights
-    let highlights: string[] = [];
-    const highlightSection = markdown.split('## Memory highlights used')[1];
-    if (highlightSection) {
-      highlights = highlightSection
-        .split('\n')
-        .filter(line => line.trim().startsWith('-'))
-        .map(line => line.replace(/^-/, '').trim());
-    }
+    const highlightsRegex = /## Memory highlights used[\s\S]*?((?:- .+\n?)+)/;
+    const highlightsMatch = markdown.match(highlightsRegex);
+    const memoryHighlights = highlightsMatch 
+      ? highlightsMatch[1].split('\n').map(l => l.replace(/^- /, '').trim()).filter(Boolean)
+      : [];
 
     return {
       markdown,
-      memoryHighlights: highlights,
+      memoryHighlights,
       moves,
       similarityReport,
       usage: {
-        usedProfile: isPersonalized && !!profile,
-        usedLastBrief: isPersonalized && !!lastBrief,
+        usedProfile: !!profile,
+        usedLastBrief: !!lastBrief,
         deltaCount: recentDeltas.length,
         retryCount
       }
     };
 
   } catch (error) {
-    console.error("LLM Generation Error:", error);
-    throw new Error("Failed to generate brief. Please check your API key.");
+    console.error("Error generating brief:", error);
+    throw error;
   }
 }
