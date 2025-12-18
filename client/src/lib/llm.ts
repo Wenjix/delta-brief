@@ -52,6 +52,8 @@ function getSyllabusDetails(topic: string) {
   const session = syllabus.sessions.find(s => s.topic === topic);
   if (!session) return null;
   return {
+    course: syllabus.course,
+    date: session.date,
     topic: session.topic,
     learning_objectives: session.learning_objectives,
     frameworks: session.frameworks,
@@ -68,7 +70,8 @@ function formatSyllabusForLLM(s: ReturnType<typeof getSyllabusDetails>) {
 
   const syllabusStr =
 `SYLLABUS CONTEXT (authoritative)
-
+COURSE: ${s.course}
+CLASS DATE: ${s.date}
 TOPIC: ${s.topic}
 
 KEY FRAMEWORKS (use EXACT names only):
@@ -76,6 +79,9 @@ ${frameworkNames.map(n => `- ${n}`).join("\n")}
 
 LEARNING OBJECTIVES:
 ${(s.learning_objectives ?? []).map(o => `- ${o}`).join("\n")}
+
+DISCUSSION PROMPTS:
+${(s.discussion_prompts ?? []).map(p => `- ${p}`).join("\n")}
 
 ASSIGNMENT HOOK:
 - ${s.assignment_hook ?? "Assumption: no assignment hook provided"}`;
@@ -131,6 +137,7 @@ CRITICAL INSTRUCTION (must follow):
 
 FRAMEWORK CONSTRAINT:
 - For EACH Move, the framework name MUST exactly match one item from the KEY FRAMEWORKS list in {{syllabusStr}}.
+- Framework must be EXACTLY one of the strings in ALLOWED_FRAMEWORK_NAMES. Copy/paste only.
 
 Write the brief using this EXACT structure (markdown). Follow formatting precisely:
 
@@ -257,13 +264,11 @@ export async function generateBrief(params: BriefGenerationParams): Promise<Brie
         retryCount++;
 
         const retryInstruction = `
-FRAMEWORK ERROR DETECTED:
-You used these invalid framework names: ${JSON.stringify(invalidFrameworks)}
+Validation failed: you used framework names not in ALLOWED_FRAMEWORK_NAMES.
+You MUST copy/paste one of the exact allowed strings for each Move.
 
-You MUST use EXACT names from this list only:
-${JSON.stringify(frameworkNames)}
-
-Please regenerate the brief with corrected framework names. Copy/paste exactly.
+Invalid names used: ${JSON.stringify(invalidFrameworks)}
+Allowed names: ${JSON.stringify(frameworkNames)}
 `;
         messages.push({ role: 'assistant', content: markdown });
         messages.push({ role: 'user', content: retryInstruction });
