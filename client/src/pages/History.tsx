@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { memoryProvider, Memory } from "@/lib/memory";
 import { seedDemoData } from "@/lib/seed";
-import { Trash2, RefreshCw, Database } from "lucide-react";
+import { Trash2, RefreshCw, Database, Calendar, ArrowDown, Briefcase, FileText, User } from "lucide-react";
 import { toast } from "sonner";
 
 export default function History() {
@@ -14,7 +14,14 @@ export default function History() {
     setIsLoading(true);
     try {
       const data = await memoryProvider.list();
-      setMemories(data);
+      // Sort by session_id (date) descending, then by created_at descending
+      const sorted = data.sort((a, b) => {
+        if (a.session_id !== b.session_id) {
+          return b.session_id.localeCompare(a.session_id);
+        }
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      });
+      setMemories(sorted);
     } catch (error) {
       console.error(error);
       toast.error("Failed to load history");
@@ -43,23 +50,42 @@ export default function History() {
     }
   };
 
-  const getBadgeColor = (type: string) => {
+  const getIcon = (type: string) => {
     switch (type) {
-      case 'profile': return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200';
-      case 'work_delta': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
-      case 'brief_output': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
-      case 'feedback': return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200';
-      default: return 'bg-gray-100 text-gray-800';
+      case 'profile': return <User className="h-4 w-4" />;
+      case 'work_delta': return <Briefcase className="h-4 w-4" />;
+      case 'brief_output': return <FileText className="h-4 w-4" />;
+      default: return <Database className="h-4 w-4" />;
     }
   };
 
+  const getBadgeColor = (type: string) => {
+    switch (type) {
+      case 'profile': return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200 border-purple-200 dark:border-purple-800';
+      case 'work_delta': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 border-blue-200 dark:border-blue-800';
+      case 'brief_output': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 border-green-200 dark:border-green-800';
+      case 'feedback': return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200 border-orange-200 dark:border-orange-800';
+      default: return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+
+  // Group memories by session_id
+  const groupedMemories = memories.reduce((acc, mem) => {
+    const date = mem.session_id;
+    if (!acc[date]) acc[date] = [];
+    acc[date].push(mem);
+    return acc;
+  }, {} as Record<string, Memory[]>);
+
+  const sortedDates = Object.keys(groupedMemories).sort((a, b) => b.localeCompare(a));
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold tracking-tight">Memory Log</h2>
+          <h2 className="text-3xl font-bold tracking-tight">Memory Timeline</h2>
           <p className="text-muted-foreground mt-2">
-            Raw view of the episodic memory stream.
+            Visualizing the compounding context from Week A to Week B.
           </p>
         </div>
         <div className="flex gap-2">
@@ -75,31 +101,105 @@ export default function History() {
         </div>
       </div>
 
-      <div className="space-y-4">
-        {memories.length === 0 ? (
-          <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-lg">
-            No memories recorded yet. Start the onboarding flow or click "Seed Demo Data".
+      <div className="relative border-l-2 border-muted ml-4 md:ml-6 space-y-12 pb-12">
+        {sortedDates.length === 0 ? (
+          <div className="ml-8 text-muted-foreground py-12 border-2 border-dashed rounded-lg text-center">
+            No timeline data. Click "Seed Demo Data" to visualize the progression.
           </div>
         ) : (
-          memories.map((mem) => (
-            <Card key={mem.id} className="overflow-hidden">
-              <CardHeader className="bg-muted/50 py-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className={`px-2 py-1 rounded-full text-xs font-bold uppercase tracking-wide ${getBadgeColor(mem.episode_type)}`}>
-                      {mem.episode_type.replace('_', ' ')}
-                    </span>
-                    <span className="text-xs font-mono text-muted-foreground">{mem.id}</span>
-                  </div>
-                  <span className="text-xs text-muted-foreground">{new Date(mem.created_at).toLocaleString()}</span>
+          sortedDates.map((date, dateIndex) => (
+            <div key={date} className="relative">
+              {/* Date Marker */}
+              <div className="absolute -left-[21px] md:-left-[29px] bg-background border-2 border-primary rounded-full p-1.5 z-10">
+                <Calendar className="h-4 w-4 text-primary" />
+              </div>
+              
+              <div className="ml-8 md:ml-12">
+                <h3 className="text-lg font-bold flex items-center gap-2 mb-4">
+                  {date}
+                  {dateIndex === 0 && <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">Current Week</span>}
+                  {dateIndex === 1 && <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">Last Week</span>}
+                </h3>
+
+                <div className="grid gap-4">
+                  {groupedMemories[date].map((mem) => (
+                    <Card key={mem.id} className="overflow-hidden border-l-4 border-l-transparent hover:border-l-primary transition-all">
+                      <CardHeader className="bg-muted/30 py-3 px-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <div className={`p-1.5 rounded-md border ${getBadgeColor(mem.episode_type)}`}>
+                              {getIcon(mem.episode_type)}
+                            </div>
+                            <span className="font-semibold capitalize">
+                              {mem.episode_type.replace('_', ' ')}
+                            </span>
+                          </div>
+                          <span className="text-xs font-mono text-muted-foreground hidden sm:inline-block">{mem.id.slice(0, 8)}...</span>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="pt-4 px-4 pb-4">
+                        {mem.episode_type === 'work_delta' && (
+                          <div className="space-y-2">
+                            <div className="text-sm font-medium text-muted-foreground">Work Changes:</div>
+                            <ul className="list-disc list-inside text-sm space-y-1">
+                              {(mem.payload.work_changes as any[])?.map((change: any, i: number) => (
+                                <li key={i}>
+                                  <span className="font-medium">{change.bullet || change}</span>
+                                  {change.impact && <span className="ml-2 text-xs bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded text-slate-600 dark:text-slate-400">{change.impact}</span>}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {mem.episode_type === 'brief_output' && (
+                          <div className="space-y-3">
+                            <div className="text-sm font-medium text-muted-foreground">Generated Moves:</div>
+                            <ul className="list-decimal list-inside text-sm space-y-1 pl-2 border-l-2 border-green-200 dark:border-green-900 ml-1">
+                              {(mem.payload.moves as string[])?.map((move, i) => (
+                                <li key={i} className="py-0.5">{move}</li>
+                              ))}
+                            </ul>
+                            {mem.payload.open_threads && (
+                              <>
+                                <div className="text-sm font-medium text-muted-foreground mt-2">Open Threads (carried forward):</div>
+                                <ul className="list-disc list-inside text-xs text-muted-foreground pl-2">
+                                  {(mem.payload.open_threads as string[])?.map((thread, i) => (
+                                    <li key={i}>{thread}</li>
+                                  ))}
+                                </ul>
+                              </>
+                            )}
+                          </div>
+                        )}
+
+                        {mem.episode_type === 'profile' && (
+                          <div className="text-sm">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <div><span className="text-muted-foreground">Role:</span> {mem.payload.role}</div>
+                              <div><span className="text-muted-foreground">Industry:</span> {mem.payload.industry}</div>
+                              <div className="sm:col-span-2"><span className="text-muted-foreground">Initiative:</span> {mem.payload.initiative}</div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Fallback for other types */}
+                        {!['work_delta', 'brief_output', 'profile'].includes(mem.episode_type) && (
+                          <pre className="text-xs font-mono bg-slate-950 text-slate-50 p-3 rounded-md overflow-x-auto">
+                            {JSON.stringify(mem.payload, null, 2)}
+                          </pre>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
-              </CardHeader>
-              <CardContent className="pt-4">
-                <pre className="text-xs font-mono bg-slate-950 text-slate-50 p-4 rounded-md overflow-x-auto">
-                  {JSON.stringify(mem.payload, null, 2)}
-                </pre>
-              </CardContent>
-            </Card>
+              </div>
+              
+              {/* Connector Line for next item */}
+              {dateIndex < sortedDates.length - 1 && (
+                <div className="absolute left-[-1px] top-8 bottom-[-48px] w-0.5 bg-muted -z-10"></div>
+              )}
+            </div>
           ))
         )}
       </div>
