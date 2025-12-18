@@ -11,9 +11,11 @@ import { memoryProvider, Memory } from "@/lib/memory";
 import { generateBrief, BriefGenerationResult, DEFAULT_SYSTEM_PROMPT, DEFAULT_USER_PROMPT_TEMPLATE } from "@/lib/llm";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
-import { Loader2, ThumbsUp, ThumbsDown, Clock, CheckCircle, AlertTriangle, AlertCircle, Settings2, RotateCcw, Eye, Calendar, ArrowRight, SplitSquareHorizontal, BookOpen, GraduationCap, X, Maximize2, Minimize2, LayoutTemplate, FileText, MoveRight, ArrowDownRight, MessageSquarePlus, Save } from "lucide-react";
+import { Loader2, ThumbsUp, ThumbsDown, Clock, CheckCircle, AlertTriangle, AlertCircle, Settings2, RotateCcw, Eye, Calendar, ArrowRight, SplitSquareHorizontal, BookOpen, GraduationCap, X, Maximize2, Minimize2, LayoutTemplate, FileText, MoveRight, ArrowDownRight, MessageSquarePlus, Save, Download } from "lucide-react";
 import { ClassCalendar, getNextSession, Session, getLocalISODate } from "@/components/ClassCalendar";
 import syllabus from "@/lib/syllabus.json";
+// @ts-ignore
+import html2pdf from "html2pdf.js";
 
 export default function Brief() {
   const [, setLocation] = useLocation();
@@ -392,6 +394,37 @@ export default function Brief() {
     }
   };
 
+  const handleDownloadPDF = () => {
+    if (!previewBrief || !selectedSession) return;
+
+    const element = document.getElementById('brief-content-to-pdf');
+    if (!element) {
+      toast.error("Could not find content to export.");
+      return;
+    }
+
+    const topicSlug = selectedSession.topic.replace(/[^a-z0-9]/gi, '-').toLowerCase();
+    const filename = `DeltaBrief_${topicSlug}_${selectedSession.date}.pdf`;
+
+    const opt = {
+      margin: 10, // top, left, bottom, right in mm
+      filename: filename,
+      image: { type: 'jpeg' as const, quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' as const }
+    };
+
+    // Use a toast promise to show progress
+    toast.promise(
+      html2pdf().set(opt).from(element).save(),
+      {
+        loading: 'Generating PDF...',
+        success: 'PDF downloaded successfully!',
+        error: 'Failed to generate PDF.'
+      }
+    );
+  };
+
   return (
     <div className="container mx-auto p-4 max-w-5xl space-y-8 pb-20">
       {/* Header */}
@@ -735,6 +768,20 @@ export default function Brief() {
                   </Button>
                 </div>
               )}
+              
+              {/* PDF Export Button */}
+              {!isCompareMode && (
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={handleDownloadPDF}
+                  className="mr-2"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Download PDF
+                </Button>
+              )}
+
               <Button variant="ghost" size="icon" onClick={() => setShowPreview(false)}>
                 <X className="h-5 w-5" />
               </Button>
@@ -908,7 +955,7 @@ export default function Brief() {
 
                   {/* Current Brief (Full) */}
                   {previewBrief && (
-                    <div>
+                    <div id="brief-content-to-pdf">
                       <div className="mb-4 pb-2 border-b flex justify-between items-center">
                         <h3 className="font-semibold text-primary">Current: {previewBrief.session_id}</h3>
                         {!isCompareMode && (
@@ -954,7 +1001,7 @@ export default function Brief() {
 
                       {/* Add Note Section */}
                       {!isCompareMode && (
-                        <div className="mt-8 pt-6 border-t">
+                        <div className="mt-8 pt-6 border-t" data-html2canvas-ignore="true">
                           <h4 className="text-sm font-semibold mb-3 flex items-center gap-2">
                             <MessageSquarePlus className="h-4 w-4" />
                             Add a Note
