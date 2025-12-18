@@ -1,14 +1,18 @@
 import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { memoryProvider, Memory } from "@/lib/memory";
 import { seedDemoData } from "@/lib/seed";
-import { Trash2, RefreshCw, Database, Calendar, ArrowDown, Briefcase, FileText, User } from "lucide-react";
+import { Trash2, RefreshCw, Database, Calendar, Briefcase, FileText, User, GitCompare } from "lucide-react";
 import { toast } from "sonner";
 
 export default function History() {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [diffOpen, setDiffOpen] = useState(false);
+  const [selectedBrief, setSelectedBrief] = useState<Memory | null>(null);
+  const [previousBrief, setPreviousBrief] = useState<Memory | null>(null);
 
   const loadMemories = async () => {
     setIsLoading(true);
@@ -48,6 +52,25 @@ export default function History() {
       await loadMemories();
       toast.success("Demo data seeded (Week A + Week B)");
     }
+  };
+
+  const handleCompare = (current: Memory) => {
+    // Find the previous brief (chronologically before this one)
+    const briefs = memories
+      .filter(m => m.episode_type === 'brief_output')
+      .sort((a, b) => a.session_id.localeCompare(b.session_id)); // Ascending date
+
+    const currentIndex = briefs.findIndex(b => b.id === current.id);
+    const prev = currentIndex > 0 ? briefs[currentIndex - 1] : null;
+
+    if (!prev) {
+      toast.info("No previous brief found to compare against.");
+      return;
+    }
+
+    setSelectedBrief(current);
+    setPreviousBrief(prev);
+    setDiffOpen(true);
   };
 
   const getIcon = (type: string) => {
@@ -134,7 +157,19 @@ export default function History() {
                               {mem.episode_type.replace('_', ' ')}
                             </span>
                           </div>
-                          <span className="text-xs font-mono text-muted-foreground hidden sm:inline-block">{mem.id.slice(0, 8)}...</span>
+                          <div className="flex items-center gap-2">
+                            {mem.episode_type === 'brief_output' && dateIndex === 0 && (
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                className="h-7 text-xs"
+                                onClick={() => handleCompare(mem)}
+                              >
+                                <GitCompare className="h-3 w-3 mr-1" /> Compare
+                              </Button>
+                            )}
+                            <span className="text-xs font-mono text-muted-foreground hidden sm:inline-block">{mem.id.slice(0, 8)}...</span>
+                          </div>
                         </div>
                       </CardHeader>
                       <CardContent className="pt-4 px-4 pb-4">
@@ -203,6 +238,56 @@ export default function History() {
           ))
         )}
       </div>
+
+      {/* Diff Dialog */}
+      <Dialog open={diffOpen} onOpenChange={setDiffOpen}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Strategic Pivot: Week A vs. Week B</DialogTitle>
+            <DialogDescription>
+              See how the advice evolved based on new constraints and learnings.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+            {/* Previous Brief */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between border-b pb-2">
+                <h4 className="font-semibold text-muted-foreground">Last Week ({previousBrief?.session_id})</h4>
+              </div>
+              <div className="bg-muted/30 p-4 rounded-lg border border-dashed">
+                <ul className="list-decimal list-inside space-y-3 text-sm">
+                  {(previousBrief?.payload.moves as string[])?.map((move, i) => (
+                    <li key={i} className="text-muted-foreground">{move}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+
+            {/* Current Brief */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between border-b pb-2">
+                <h4 className="font-semibold text-primary">This Week ({selectedBrief?.session_id})</h4>
+              </div>
+              <div className="bg-primary/5 p-4 rounded-lg border border-primary/20">
+                <ul className="list-decimal list-inside space-y-3 text-sm">
+                  {(selectedBrief?.payload.moves as string[])?.map((move, i) => (
+                    <li key={i} className="font-medium">{move}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-md mt-4 text-sm text-blue-800 dark:text-blue-200 flex gap-3">
+            <GitCompare className="h-5 w-5 shrink-0" />
+            <div>
+              <p className="font-bold">Compounding Insight:</p>
+              <p>Notice how the advice shifted from "Isolate data" (Week A) to "Engage union" (Week B) because the legal blocker forced a pivot to stakeholder management.</p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
