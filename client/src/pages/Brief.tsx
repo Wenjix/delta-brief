@@ -11,6 +11,7 @@ import { generateBrief, BriefGenerationResult, DEFAULT_SYSTEM_PROMPT, DEFAULT_US
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
 import { Loader2, ThumbsUp, ThumbsDown, Clock, CheckCircle, AlertTriangle, Settings2, RotateCcw } from "lucide-react";
+import { ClassCalendar, getNextSession, Session } from "@/components/ClassCalendar";
 
 export default function Brief() {
   const [, setLocation] = useLocation();
@@ -25,9 +26,18 @@ export default function Brief() {
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
   const [userPromptTemplate, setUserPromptTemplate] = useState(DEFAULT_USER_PROMPT_TEMPLATE);
 
+  // Session Selection State
+  const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+
   // State for feedback
   const [minutesSaved, setMinutesSaved] = useState(15);
   const [usedInClass, setUsedInClass] = useState(false);
+
+  // Initialize session on mount
+  useEffect(() => {
+    const next = getNextSession();
+    if (next) setSelectedSession(next);
+  }, []);
 
   const handleResetPrompts = () => {
     if (confirm("Reset prompts to default?")) {
@@ -38,6 +48,11 @@ export default function Brief() {
   };
 
   const handleGenerate = async () => {
+    if (!selectedSession) {
+      toast.error("Please select a class session first.");
+      return;
+    }
+
     setIsGenerating(true);
     setResult(null);
     setFeedbackSubmitted(false);
@@ -46,6 +61,9 @@ export default function Brief() {
       // 1. Fetch Context
       const [profile] = await memoryProvider.search("", { episode_type: ["profile"] }, 1);
       const recentDeltas = await memoryProvider.search("", { episode_type: ["work_delta"] }, 3);
+      
+      // Fetch last brief specifically for the PREVIOUS session relative to selected
+      // For demo simplicity, we just grab the most recent brief_output
       const [lastBrief] = await memoryProvider.search("", { episode_type: ["brief_output"] }, 1);
 
       // Get latest delta for syllabus info (hack for demo)
@@ -56,13 +74,13 @@ export default function Brief() {
         return;
       }
 
-      const { course, next_topic } = latestDelta.payload;
+      const { course } = latestDelta.payload;
 
       // 2. Generate
       const generated = await generateBrief({
-        classDate: new Date().toISOString().split('T')[0],
-        className: course,
-        syllabusTopic: next_topic,
+        classDate: selectedSession.date,
+        className: course || "AI Transformation", // Fallback if delta missing course
+        syllabusTopic: selectedSession.topic,
         mode: isPersonalized ? 'personalized' : 'generic',
         profile: isPersonalized ? profile : undefined,
         recentDeltas: isPersonalized ? recentDeltas : [latestDelta], // Generic still needs current context
@@ -79,7 +97,7 @@ export default function Brief() {
         user_id: "u_demo",
         org_id: "org_demo",
         project_id: "p_emba_delta_brief",
-        session_id: new Date().toISOString().split('T')[0],
+        session_id: selectedSession.date, // Anchor to the specific session date
         episode_type: "brief_output",
         tags: ["emba", "brief"],
         payload: {
@@ -104,7 +122,7 @@ export default function Brief() {
         user_id: "u_demo",
         org_id: "org_demo",
         project_id: "p_emba_delta_brief",
-        session_id: new Date().toISOString().split('T')[0],
+        session_id: selectedSession?.date || new Date().toISOString().split('T')[0],
         episode_type: "feedback",
         tags: ["feedback"],
         payload: {
@@ -122,56 +140,64 @@ export default function Brief() {
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
+        <div className="flex-1">
           <h2 className="text-3xl font-bold tracking-tight">Delta Brief</h2>
           <p className="text-muted-foreground mt-2">
             Generate your 1-page pre-class executive summary.
           </p>
         </div>
         
-        <div className="flex flex-col sm:flex-row items-end sm:items-center gap-4 bg-card p-4 rounded-lg border border-border shadow-sm">
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center space-x-2">
+        {/* Calendar Component */}
+        <div className="w-full md:w-72 shrink-0">
+          <ClassCalendar 
+            selectedDate={selectedSession?.date || ""} 
+            onSelectSession={setSelectedSession} 
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-col sm:flex-row items-end sm:items-center gap-4 bg-card p-4 rounded-lg border border-border shadow-sm">
+        <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-2">
+            <Switch 
+              id="mode-toggle" 
+              checked={isPersonalized} 
+              onCheckedChange={setIsPersonalized} 
+            />
+            <Label htmlFor="mode-toggle" className="font-medium text-sm">
+              {isPersonalized ? "Personalized" : "Generic"}
+            </Label>
+          </div>
+
+          {isPersonalized && (
+            <div className="flex items-center space-x-2 border-l pl-4">
               <Switch 
-                id="mode-toggle" 
-                checked={isPersonalized} 
-                onCheckedChange={setIsPersonalized} 
+                id="similarity-toggle" 
+                checked={enableSimilarityCheck} 
+                onCheckedChange={setEnableSimilarityCheck} 
               />
-              <Label htmlFor="mode-toggle" className="font-medium text-sm">
-                {isPersonalized ? "Personalized" : "Generic"}
+              <Label htmlFor="similarity-toggle" className="font-medium text-sm">
+                No Repeats
               </Label>
             </div>
+          )}
+        </div>
 
-            {isPersonalized && (
-              <div className="flex items-center space-x-2 border-l pl-4">
-                <Switch 
-                  id="similarity-toggle" 
-                  checked={enableSimilarityCheck} 
-                  onCheckedChange={setEnableSimilarityCheck} 
-                />
-                <Label htmlFor="similarity-toggle" className="font-medium text-sm">
-                  No Repeats
-                </Label>
-              </div>
+        <div className="flex gap-2 ml-auto">
+          <Button variant="outline" size="icon" onClick={() => setShowPromptConfig(true)} title="Configure Prompts">
+            <Settings2 className="h-4 w-4" />
+          </Button>
+          <Button onClick={handleGenerate} disabled={isGenerating || !selectedSession}>
+            {isGenerating ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Generating...
+              </>
+            ) : (
+              "Generate Brief"
             )}
-          </div>
-
-          <div className="flex gap-2">
-            <Button variant="outline" size="icon" onClick={() => setShowPromptConfig(true)} title="Configure Prompts">
-              <Settings2 className="h-4 w-4" />
-            </Button>
-            <Button onClick={handleGenerate} disabled={isGenerating}>
-              {isGenerating ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Generating...
-                </>
-              ) : (
-                "Generate Brief"
-              )}
-            </Button>
-          </div>
+          </Button>
         </div>
       </div>
 
@@ -279,21 +305,33 @@ export default function Brief() {
                   </div>
 
                   <div className="flex gap-2 pt-2">
-                    <Button variant="outline" size="sm" className="flex-1" onClick={() => handleFeedback('up')}>
-                      <ThumbsUp className="h-4 w-4 mr-2" /> Useful
+                    <Button 
+                      variant="outline" 
+                      className="flex-1" 
+                      onClick={() => handleFeedback('up')}
+                    >
+                      <ThumbsUp className="h-4 w-4 mr-2" />
+                      Helpful
                     </Button>
-                    <Button variant="outline" size="sm" className="flex-1" onClick={() => handleFeedback('down')}>
-                      <ThumbsDown className="h-4 w-4 mr-2" /> Poor
+                    <Button 
+                      variant="outline" 
+                      className="flex-1" 
+                      onClick={() => handleFeedback('down')}
+                    >
+                      <ThumbsDown className="h-4 w-4 mr-2" />
+                      Poor
                     </Button>
                   </div>
                 </CardContent>
               </Card>
             ) : (
-              <Card className="bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-900">
-                <CardContent className="pt-6 flex flex-col items-center text-center text-green-700 dark:text-green-400">
-                  <CheckCircle className="h-8 w-8 mb-2" />
-                  <p className="font-medium">Feedback Recorded</p>
-                  <p className="text-xs mt-1">Compounding your preferences for next time.</p>
+              <Card className="bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
+                <CardContent className="pt-6 flex flex-col items-center text-center">
+                  <CheckCircle className="h-8 w-8 text-green-600 dark:text-green-400 mb-2" />
+                  <h4 className="font-medium text-green-800 dark:text-green-200">Feedback Received</h4>
+                  <p className="text-xs text-green-700 dark:text-green-300 mt-1">
+                    Your input helps improve future briefs.
+                  </p>
                 </CardContent>
               </Card>
             )}
@@ -303,29 +341,27 @@ export default function Brief() {
 
       {/* Prompt Configuration Dialog */}
       <Dialog open={showPromptConfig} onOpenChange={setShowPromptConfig}>
-        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Prompt Configuration</DialogTitle>
             <DialogDescription>
-              Edit the exact instructions sent to the LLM. Variables like {'{{syllabusTopic}}'} will be interpolated at runtime.
+              Edit the system and user prompts used for generation. Variables like {'{{syllabusTopic}}'} will be interpolated at runtime.
             </DialogDescription>
           </DialogHeader>
           
-          <div className="flex-1 overflow-y-auto space-y-4 py-4 pr-2">
+          <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="system-prompt" className="font-bold">System Prompt</Label>
-              <p className="text-xs text-muted-foreground">Defines the persona, constraints, and non-negotiables.</p>
+              <Label htmlFor="system-prompt">System Prompt</Label>
               <Textarea 
                 id="system-prompt" 
                 value={systemPrompt} 
                 onChange={(e) => setSystemPrompt(e.target.value)}
-                className="font-mono text-xs min-h-[150px]"
+                className="font-mono text-xs min-h-[200px]"
               />
             </div>
-
+            
             <div className="space-y-2">
-              <Label htmlFor="user-prompt" className="font-bold">User Prompt Template</Label>
-              <p className="text-xs text-muted-foreground">The structure of the request, including context injection points.</p>
+              <Label htmlFor="user-prompt">User Prompt Template</Label>
               <Textarea 
                 id="user-prompt" 
                 value={userPromptTemplate} 
@@ -335,17 +371,20 @@ export default function Brief() {
             </div>
           </div>
 
-          <DialogFooter className="flex justify-between items-center sm:justify-between">
-            <Button variant="ghost" size="sm" onClick={handleResetPrompts} className="text-muted-foreground">
-              <RotateCcw className="h-4 w-4 mr-2" /> Reset to Default
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={handleResetPrompts} className="mr-auto">
+              <RotateCcw className="h-4 w-4 mr-2" />
+              Reset Defaults
             </Button>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setShowPromptConfig(false)}>Cancel</Button>
-              <Button onClick={() => {
-                setShowPromptConfig(false);
-                toast.success("Prompt configuration saved");
-              }}>Save Changes</Button>
-            </div>
+            <Button variant="secondary" onClick={() => setShowPromptConfig(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => {
+              setShowPromptConfig(false);
+              toast.success("Prompt configuration saved");
+            }}>
+              Save Changes
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
