@@ -52,11 +52,39 @@ function getSyllabusDetails(topic: string) {
   const session = syllabus.sessions.find(s => s.topic === topic);
   if (!session) return null;
   return {
+    topic: session.topic,
     learning_objectives: session.learning_objectives,
     frameworks: session.frameworks,
     discussion_prompts: session.class_discussion_prompts,
     assignment_hook: session.assignment_hook
   };
+}
+
+// Formatter for LLM consumption
+function formatSyllabusForLLM(s: ReturnType<typeof getSyllabusDetails>) {
+  if (!s) return { syllabusStr: "No detailed syllabus found.", allowedFrameworkNamesStr: "", frameworkNames: [] };
+
+  const frameworkNames = (s.frameworks ?? []).map(f => f.name).filter(Boolean);
+
+  const syllabusStr =
+`SYLLABUS CONTEXT (authoritative)
+
+TOPIC: ${s.topic}
+
+KEY FRAMEWORKS (use EXACT names only):
+${frameworkNames.map(n => `- ${n}`).join("\n")}
+
+LEARNING OBJECTIVES:
+${(s.learning_objectives ?? []).map(o => `- ${o}`).join("\n")}
+
+ASSIGNMENT HOOK:
+- ${s.assignment_hook ?? "Assumption: no assignment hook provided"}`;
+
+  const allowedFrameworkNamesStr =
+`ALLOWED_FRAMEWORK_NAMES (must match exactly, choose one per Move):
+${JSON.stringify(frameworkNames)}`;
+
+  return { syllabusStr, allowedFrameworkNamesStr, frameworkNames };
 }
 
 export const DEFAULT_SYSTEM_PROMPT = `You are an executive-grade EMBA assistant. The user is time-poor and wants class learnings converted into immediate work leverage.
@@ -79,38 +107,47 @@ export const DEFAULT_USER_PROMPT_TEMPLATE = `Generate a “Pre-Class Delta Brief
 
 Syllabus / next topic:
 {{syllabusTopic}}
-Detailed Syllabus Context:
+
+Detailed Syllabus Context (includes KEY FRAMEWORKS, LEARNING OBJECTIVES, assignment hook):
 {{syllabusStr}}
+
+{{allowedFrameworkNamesStr}}
 
 Profile memory (stable facts about the student + org):
 {{profileStr}}
 
-Most recent weekly check-in / deltas (Sorted by impact):
+Most recent weekly check-in / deltas (sorted by impact, highest first):
 {{deltasStr}}
 
 Last brief output (to avoid repeats & resolve open threads):
 {{lastBriefStr}}
 
-CRITICAL INSTRUCTION:
-1. Identify the highest impact delta from the check-in.
-2. Identify any "Open Threads" from the last brief that this delta affects.
-3. You MUST dedicate at least one Move to explicitly resolving this thread.
-   - Format: "Previously: [Old Plan] -> Now: [New Plan] -> Update: [Resolution]"
+CRITICAL INSTRUCTION (must follow):
+1) Identify the single highest-impact delta from the check-in.
+2) Identify any Open Thread(s) from the last brief that this delta affects.
+3) You MUST dedicate at least one Move to explicitly resolving the affected Open Thread.
+   - The resolution MUST appear as a sub-bullet under that Move using this exact format:
+     - Open Thread Update: Previously: [Old Plan] -> Now: [New Reality] -> Update: [New Plan]
 
-Write the brief using this EXACT structure (markdown):
+FRAMEWORK CONSTRAINT:
+- For EACH Move, the framework name MUST exactly match one item from the KEY FRAMEWORKS list in {{syllabusStr}}.
+
+Write the brief using this EXACT structure (markdown). Follow formatting precisely:
 
 # Pre-Class Delta Brief — {{className}} — {{classDate}}
 
 ## This week’s lens (tie to syllabus topic)
-- (1–2 bullets)
+- (1–2 bullets; each bullet must reference a learning objective or framework from the syllabus)
 
 ## 3 moves that matter since last class (ranked)
 For each move, include exactly these sub-bullets:
-1) Move: <7–12 words> (Framework: <Name of Framework used>)
-   - What changed (specific, from deltas)
+1) Move: <7–12 words> (Framework: <ONE framework from KEY FRAMEWORKS>)
+   - What changed (specific, from deltas; mention impact)
    - Why it matters for my org (tie to profile + constraints)
    - Capstone implication (tie to capstone topic/milestone)
    - “In-class line” (one sentence I can say in class)
+   - Open Thread Update: Previously: [Old Plan] -> Now: [New Reality] -> Update: [New Plan]
+     (Include this line ONLY for the Move that resolves an Open Thread. Do not include it on other moves.)
 
 ## 2 risks / failure modes (constraint-aware)
 - Risk 1: <one sentence> — Mitigation: <one sentence>
@@ -118,16 +155,16 @@ For each move, include exactly these sub-bullets:
 
 ## 1 next action I can complete this week (smallest step)
 - Action: <one sentence>
-- Output artifact: {{assignmentHook}}
+- Output artifact: <one concrete deliverable produced by the Action> (Must satisfy: {{assignmentHook}})
 
 ## Class discussion ammo
 - Contrarian point A: <one sentence>
 - Contrarian point B: <one sentence>
 - Question to ask (prof/guest): <one sentence>
-- My org story (30 seconds): <3–5 sentences, concrete>
+- My org story (30 seconds): <3–5 sentences, concrete, using the highest-impact delta>
 
 ## Memory highlights used (for transparency)
-- (4–7 short chips/phrases; only items truly used)
+- (4–7 short chips/phrases; ONLY items truly used; do NOT repeat this section in any other form)
 
 Hard constraints:
 - Do NOT include anything outside the template.
@@ -164,11 +201,9 @@ export async function generateBrief(params: BriefGenerationParams): Promise<Brie
     ? JSON.stringify(lastBrief.payload, null, 2)
     : "NOT AVAILABLE (First session or Generic Mode)";
 
-  // Get Syllabus Context
+  // Get Syllabus Context & Format
   const syllabusDetails = getSyllabusDetails(syllabusTopic);
-  const syllabusStr = syllabusDetails 
-    ? JSON.stringify(syllabusDetails, null, 2)
-    : "No detailed syllabus found for this topic.";
+  const { syllabusStr, allowedFrameworkNamesStr, frameworkNames } = formatSyllabusForLLM(syllabusDetails);
 
   // 2. Build Prompts
   const systemPrompt = customSystemPrompt || DEFAULT_SYSTEM_PROMPT;
@@ -179,6 +214,7 @@ export async function generateBrief(params: BriefGenerationParams): Promise<Brie
   userPrompt = userPrompt
     .replace('{{syllabusTopic}}', syllabusTopic)
     .replace('{{syllabusStr}}', syllabusStr)
+    .replace('{{allowedFrameworkNamesStr}}', allowedFrameworkNamesStr)
     .replace('{{profileStr}}', profileStr)
     .replace('{{deltasStr}}', deltasStr)
     .replace('{{lastBriefStr}}', lastBriefStr)
@@ -203,7 +239,47 @@ export async function generateBrief(params: BriefGenerationParams): Promise<Brie
     let moves = extractMoves(markdown);
     let similarityReport: SimilarityReport | undefined;
 
-    // 4. Similarity Check & Retry Logic
+    // 4. Framework Validation Logic
+    if (frameworkNames.length > 0) {
+      const frameworkRegex = /\(Framework:\s*([^)]+)\)/g;
+      let match;
+      let invalidFrameworks: string[] = [];
+      
+      while ((match = frameworkRegex.exec(markdown)) !== null) {
+        const usedFramework = match[1].trim();
+        if (!frameworkNames.includes(usedFramework)) {
+          invalidFrameworks.push(usedFramework);
+        }
+      }
+
+      if (invalidFrameworks.length > 0) {
+        console.log("Framework validation failed. Retrying...", invalidFrameworks);
+        retryCount++;
+
+        const retryInstruction = `
+FRAMEWORK ERROR DETECTED:
+You used these invalid framework names: ${JSON.stringify(invalidFrameworks)}
+
+You MUST use EXACT names from this list only:
+${JSON.stringify(frameworkNames)}
+
+Please regenerate the brief with corrected framework names. Copy/paste exactly.
+`;
+        messages.push({ role: 'assistant', content: markdown });
+        messages.push({ role: 'user', content: retryInstruction });
+
+        completion = await openai.chat.completions.create({
+          model: MODEL_ID,
+          messages,
+          temperature: 0.5, // Lower temp for strict compliance
+        });
+
+        markdown = completion.choices[0]?.message?.content || "Error generating brief.";
+        moves = extractMoves(markdown);
+      }
+    }
+
+    // 5. Similarity Check & Retry Logic (only if framework check passed or after retry)
     if (enableSimilarityCheck && isPersonalized && lastBrief && lastBrief.payload.moves) {
       const prevMoves = lastBrief.payload.moves as string[];
       
@@ -243,7 +319,7 @@ If you reference an earlier theme, change the angle and explicitly state “what
       }
     }
 
-    // 5. Extract Memory Highlights
+    // 6. Extract Memory Highlights
     let highlights: string[] = [];
     const highlightSection = markdown.split('## Memory highlights used')[1];
     if (highlightSection) {
