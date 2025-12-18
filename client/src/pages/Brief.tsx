@@ -8,11 +8,12 @@ import { memoryProvider, Memory } from "@/lib/memory";
 import { generateBrief, BriefGenerationResult } from "@/lib/llm";
 import { toast } from "sonner";
 import { Streamdown } from "streamdown";
-import { Loader2, ThumbsUp, ThumbsDown, Clock, CheckCircle } from "lucide-react";
+import { Loader2, ThumbsUp, ThumbsDown, Clock, CheckCircle, AlertTriangle } from "lucide-react";
 
 export default function Brief() {
   const [, setLocation] = useLocation();
   const [isPersonalized, setIsPersonalized] = useState(true);
+  const [enableSimilarityCheck, setEnableSimilarityCheck] = useState(true); // Default ON
   const [isGenerating, setIsGenerating] = useState(false);
   const [result, setResult] = useState<BriefGenerationResult | null>(null);
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
@@ -50,7 +51,8 @@ export default function Brief() {
         mode: isPersonalized ? 'personalized' : 'generic',
         profile: isPersonalized ? profile : undefined,
         recentDeltas: isPersonalized ? recentDeltas : [latestDelta], // Generic still needs current context
-        lastBrief: isPersonalized ? lastBrief : undefined
+        lastBrief: isPersonalized ? lastBrief : undefined,
+        enableSimilarityCheck: isPersonalized && enableSimilarityCheck
       });
 
       setResult(generated);
@@ -66,7 +68,8 @@ export default function Brief() {
         payload: {
           markdown: generated.markdown,
           highlights: generated.memoryHighlights,
-          mode: isPersonalized ? 'personalized' : 'generic'
+          mode: isPersonalized ? 'personalized' : 'generic',
+          moves: generated.moves // Store moves for next time
         }
       });
 
@@ -110,17 +113,33 @@ export default function Brief() {
           </p>
         </div>
         
-        <div className="flex items-center space-x-4 bg-card p-4 rounded-lg border border-border shadow-sm">
-          <div className="flex items-center space-x-2">
-            <Switch 
-              id="mode-toggle" 
-              checked={isPersonalized} 
-              onCheckedChange={setIsPersonalized} 
-            />
-            <Label htmlFor="mode-toggle" className="font-medium">
-              {isPersonalized ? "Personalized (Memory ON)" : "Generic (Memory OFF)"}
-            </Label>
+        <div className="flex flex-col sm:flex-row items-end sm:items-center gap-4 bg-card p-4 rounded-lg border border-border shadow-sm">
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
+              <Switch 
+                id="mode-toggle" 
+                checked={isPersonalized} 
+                onCheckedChange={setIsPersonalized} 
+              />
+              <Label htmlFor="mode-toggle" className="font-medium text-sm">
+                {isPersonalized ? "Personalized" : "Generic"}
+              </Label>
+            </div>
+
+            {isPersonalized && (
+              <div className="flex items-center space-x-2 border-l pl-4">
+                <Switch 
+                  id="similarity-toggle" 
+                  checked={enableSimilarityCheck} 
+                  onCheckedChange={setEnableSimilarityCheck} 
+                />
+                <Label htmlFor="similarity-toggle" className="font-medium text-sm">
+                  No Repeats
+                </Label>
+              </div>
+            )}
           </div>
+
           <Button onClick={handleGenerate} disabled={isGenerating}>
             {isGenerating ? (
               <>
@@ -138,6 +157,19 @@ export default function Brief() {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Main Brief Content */}
           <div className="lg:col-span-3 space-y-6">
+            {/* Warning Banner if similarity check failed after retry */}
+            {result.similarityReport && !result.similarityReport.pass && (
+              <div className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-4 rounded-md flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-yellow-600 dark:text-yellow-500 mt-0.5" />
+                <div>
+                  <h4 className="font-medium text-yellow-800 dark:text-yellow-200">⚠️ Possible repeat detected (demo)</h4>
+                  <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
+                    The generated moves are very similar to last week's brief despite retry attempts.
+                  </p>
+                </div>
+              </div>
+            )}
+
             <Card className="border-2 border-primary/10 shadow-lg">
               <CardContent className="pt-6 prose prose-slate dark:prose-invert max-w-none">
                 <Streamdown>{result.markdown}</Streamdown>
@@ -183,6 +215,12 @@ export default function Brief() {
                   <span>Deltas:</span>
                   <span className="font-mono">{result.usage.deltaCount}</span>
                 </div>
+                {result.usage.retryCount > 0 && (
+                  <div className="flex justify-between text-sm">
+                    <span>Retries:</span>
+                    <span className="font-mono text-orange-600 font-bold">{result.usage.retryCount}</span>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
