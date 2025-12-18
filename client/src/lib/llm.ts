@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { Memory } from './memory';
 import { checkNoRepeats, SimilarityReport } from './similarity';
+import syllabus from './syllabus.json';
 
 // Initialize OpenAI client
 const openai = new OpenAI({
@@ -18,23 +19,22 @@ export interface BriefGenerationParams {
   profile?: Memory;
   recentDeltas?: Memory[];
   lastBrief?: Memory;
-  enableSimilarityCheck?: boolean; // New toggle
+  enableSimilarityCheck?: boolean;
 }
 
 export interface BriefGenerationResult {
   markdown: string;
   memoryHighlights: string[];
-  moves: string[]; // Extracted moves
-  similarityReport?: SimilarityReport; // Report if check was run
+  moves: string[];
+  similarityReport?: SimilarityReport;
   usage: {
     usedProfile: boolean;
     usedLastBrief: boolean;
     deltaCount: number;
-    retryCount: number; // Track retries
+    retryCount: number;
   };
 }
 
-// Helper to extract moves from markdown using regex
 function extractMoves(markdown: string): string[] {
   const moves: string[] = [];
   const regex = /^\d+\)\s*Move:\s*(.+)$/gm;
@@ -43,6 +43,18 @@ function extractMoves(markdown: string): string[] {
     moves.push(match[1].trim());
   }
   return moves;
+}
+
+// Helper to find syllabus session details
+function getSyllabusDetails(topic: string) {
+  const session = syllabus.sessions.find(s => s.topic === topic);
+  if (!session) return null;
+  return {
+    learning_objectives: session.learning_objectives,
+    frameworks: session.frameworks,
+    discussion_prompts: session.class_discussion_prompts,
+    assignment_hook: session.assignment_hook
+  };
 }
 
 export async function generateBrief(params: BriefGenerationParams): Promise<BriefGenerationResult> {
@@ -73,6 +85,12 @@ export async function generateBrief(params: BriefGenerationParams): Promise<Brie
     ? JSON.stringify(lastBrief.payload, null, 2)
     : "NOT AVAILABLE (First session or Generic Mode)";
 
+  // Get Syllabus Context
+  const syllabusDetails = getSyllabusDetails(syllabusTopic);
+  const syllabusStr = syllabusDetails 
+    ? JSON.stringify(syllabusDetails, null, 2)
+    : "No detailed syllabus found for this topic.";
+
   // 2. Build Base Prompt
   const systemPrompt = `You are an executive-grade EMBA assistant. The user is time-poor and wants class learnings converted into immediate work leverage.
 
@@ -88,6 +106,8 @@ Non-negotiables:
 
 Syllabus / next topic:
 ${syllabusTopic}
+Detailed Syllabus Context:
+${syllabusStr}
 
 Profile memory (stable facts about the student + org):
 ${profileStr}
@@ -95,7 +115,7 @@ ${profileStr}
 Most recent weekly check-in / deltas:
 ${deltasStr}
 
-Last brief output (to avoid repeats):
+Last brief output (to avoid repeats & resolve open threads):
 ${lastBriefStr}
 
 Write the brief using this EXACT structure (markdown):
@@ -137,7 +157,6 @@ Hard constraints:
 
   // 3. Initial Generation Loop
   try {
-    // Define message type compatible with OpenAI SDK
     let messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: userPrompt }

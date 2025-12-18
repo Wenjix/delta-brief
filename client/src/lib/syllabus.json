@@ -1,0 +1,39 @@
+{
+  "course": "AI Transformation",
+  "sessions": [
+    {
+      "date": "2025-12-10",
+      "topic": "Data Strategy & Ethics",
+      "learning_objectives": [
+        "Define data classes (PHI vs non-PHI) and governance implications",
+        "Identify ethical failure modes in AI triage workflows"
+      ],
+      "frameworks": [
+        {"name": "Data Classification + Minimum Necessary", "bullets": ["PHI boundaries", "de-identification limits", "auditability"]},
+        {"name": "Risk Register (Ethics)", "bullets": ["harm types", "who is impacted", "mitigations + owners"]}
+      ],
+      "class_discussion_prompts": [
+        "When is 'de-identified' still risky?",
+        "What governance is required before a pilot?"
+      ],
+      "assignment_hook": "Capstone: include data governance + risk controls"
+    },
+    {
+      "date": "2025-12-17",
+      "topic": "Operating Model & Governance",
+      "learning_objectives": [
+        "Design decision rights + stage gates for AI deployment",
+        "Build stakeholder operating cadence for pilots"
+      ],
+      "frameworks": [
+        {"name": "Decision Rights (RACI / RAPID)", "bullets": ["who approves pilots", "who owns risk", "who owns comms"]},
+        {"name": "Stage Gates", "bullets": ["legal/compliance gate", "data readiness gate", "change mgmt gate"]}
+      ],
+      "class_discussion_prompts": [
+        "What should be gated vs iterated?",
+        "How do you prevent 'pilot purgatory'?"
+      ],
+      "assignment_hook": "Capstone: define operating model + governance cadence"
+    }
+  ]
+}
