@@ -252,7 +252,7 @@ export default function History() {
                                   <GitCompare className="h-3 w-3 mr-1" /> Compare
                                 </Button>
                               )}
-                              <span className="text-xs font-mono text-muted-foreground hidden sm:inline-block">{mem.id.slice(0, 8)}...</span>
+                              <span className="text-xs font-mono text-muted-foreground hidden sm:inline-block">{(mem.id ?? "").slice(0, 8)}...</span>
                             </div>
                           </div>
                         </CardHeader>

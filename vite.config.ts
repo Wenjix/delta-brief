@@ -28,13 +28,19 @@ export default defineConfig({
     strictPort: false, // Will find next available port if 3000 is busy
     host: true,
     allowedHosts: [
-
       "localhost",
       "127.0.0.1",
     ],
     fs: {
       strict: true,
       deny: ["**/.*"],
+    },
+    proxy: {
+      '/memmachine': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/memmachine/, ''),
+      },
     },
   },
 });
