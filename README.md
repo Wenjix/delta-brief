@@ -8,28 +8,54 @@ A personalized "Pre-Class Delta Brief" generator for EMBA students. This demo sh
 - **Episodic Memory**: Logs weekly "work deltas" (what changed since last class).
 - **Compounding Briefs**: Generates a 1-page brief that references prior open threads and avoids repeating previous advice.
 - **Generic vs. Personalized**: Toggle to see the difference memory makes.
+- **Compare View**: Side-by-side comparison of personalized vs. generic briefs.
 - **Demo Mode**: "Seed Demo Data" button to instantly populate Week A and Week B history.
+- **MemMachine Integration**: Optional persistent memory backend using MemMachine (vector DB + semantic/episodic storage).
 
-## Setup
+## Quick Start
 
-1. **Clone the repository**
+### Option 1: Local Storage (Demo Mode)
+
+1. **Clone and install**
    ```bash
    git clone <repo-url>
-   cd patched-delta-brief
-   ```
-
-2. **Install dependencies**
-   ```bash
+   cd delta-brief
    pnpm install
    ```
 
-3. **Configure Environment**
-   Copy `.env.example` to `.env` and add your OpenAI API key.
+2. **Configure Environment**
    ```bash
    cp .env.example .env
+   # Add your OpenAI API key to .env
    ```
 
-4. **Run Development Server**
+3. **Run**
+   ```bash
+   pnpm dev
+   ```
+
+### Option 2: With MemMachine Backend (Persistent Memory)
+
+1. **Complete steps 1-2 above**
+
+2. **Start MemMachine**
+   ```bash
+   cd MemMachine-MemMachine-f85e49d
+   cp .env.example .env
+   # Edit .env and add your OPENAI_API_KEY
+   ./memmachine-compose.sh
+   ```
+
+3. **Configure app for MemMachine**
+   In your project root `.env`:
+   ```
+   VITE_MEMORY_PROVIDER=memmachine
+   VITE_MEMMACHINE_BASE_URL=/memmachine
+   VITE_MEMMACHINE_ORG_ID=patched
+   VITE_MEMMACHINE_PROJECT_ID=delta-brief-demo
+   ```
+
+4. **Run the app**
    ```bash
    pnpm dev
    ```
@@ -39,14 +65,49 @@ A personalized "Pre-Class Delta Brief" generator for EMBA students. This demo sh
 | Variable | Description |
 |----------|-------------|
 | `VITE_OPENAI_API_KEY` | **Required**. OpenAI API key for LLM generation. |
-| `VITE_MEMORY_PROVIDER` | Optional. `local` (default) or `memmachine`. |
-| `VITE_MEMMACHINE_URL` | Optional. Base URL for MemMachine API. |
+| `VITE_MEMORY_PROVIDER` | `local` (default, localStorage) or `memmachine` (persistent backend). |
+| `VITE_MEMMACHINE_BASE_URL` | MemMachine API URL. Default: `/memmachine` (proxied via Vite). |
+| `VITE_MEMMACHINE_ORG_ID` | MemMachine organization ID. Default: `patched`. |
+| `VITE_MEMMACHINE_PROJECT_ID` | MemMachine project ID. Default: `delta-brief-demo`. |
 
 ## Architecture
 
 - **Frontend**: React + Vite + TailwindCSS + shadcn/ui
-- **Memory**: `LocalMemoryProvider` (localStorage) with `MemoryProvider` interface for easy swap to backend/vector DB.
-- **LLM**: Client-side calls to OpenAI (demo-only pattern) via `gpt-4o-mini`.
+- **Memory Providers**:
+  - `LocalMemoryProvider`: localStorage-based (default, for demo)
+  - `MemMachineProvider`: Full persistence with MemMachine (PostgreSQL + Neo4j + embeddings)
+- **LLM**: Client-side calls to OpenAI via `gpt-4o` / `gpt-4o-mini`.
+- **Vite Proxy**: Routes `/memmachine/*` to MemMachine API at `localhost:8080`.
+
+## MemMachine Setup Details
+
+MemMachine runs via Docker Compose with three services:
+
+| Service | Port | Description |
+|---------|------|-------------|
+| `memmachine-app` | 8080 | MemMachine REST API |
+| `memmachine-postgres` | 5433 | PostgreSQL with pgvector |
+| `memmachine-neo4j` | 7474/7687 | Neo4j graph database |
+
+### Configuration Files
+
+- `MemMachine-MemMachine-f85e49d/.env` - Environment variables (OPENAI_API_KEY, ports)
+- `MemMachine-MemMachine-f85e49d/configuration.yml` - MemMachine config (models, embedders, rerankers)
+- `MemMachine-MemMachine-f85e49d/docker-compose.yml` - Service definitions
+
+### Useful Commands
+
+```bash
+# View logs
+docker compose -f MemMachine-MemMachine-f85e49d/docker-compose.yml logs -f
+
+# Stop services
+docker compose -f MemMachine-MemMachine-f85e49d/docker-compose.yml down
+
+# Clean restart (wipes data)
+docker compose -f MemMachine-MemMachine-f85e49d/docker-compose.yml down -v
+./memmachine-compose.sh
+```
 
 ## Demo Script (Happy Path)
 
@@ -58,3 +119,17 @@ A personalized "Pre-Class Delta Brief" generator for EMBA students. This demo sh
    - "Memory highlights" chips showing used context.
    - References to "Union pushback" (from Week A).
    - New moves based on "CTO resignation" (Week B delta).
+6. Click **Compare** to see personalized vs. generic side-by-side.
+
+## Development
+
+```bash
+# Type check
+pnpm check
+
+# Lint
+pnpm lint
+
+# Build
+pnpm build
+```
