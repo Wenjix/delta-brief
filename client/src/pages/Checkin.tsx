@@ -7,6 +7,24 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { memoryProvider } from "@/lib/memory";
 import { toast } from "sonner";
+import { History, ArrowRight } from "lucide-react";
+
+// Demo data: Last week's context (shown for demo visibility)
+// Matches seed.ts Week A data (2025-12-10)
+const LAST_WEEK_CONTEXT = {
+  date: "2025-12-10",
+  topic: "Data Strategy & Ethics",
+  changes: [
+    { bullet: "Selected vendor for AI pilot", impact: "high" },
+    { bullet: "Union reps expressed concern about job displacement", impact: "high" },
+    { bullet: "Legal team is blocking data access request", impact: "critical" },
+  ],
+  openThreads: [
+    "Confirm whether 'non-PHI' carve-out is acceptable to legal",
+    "Define what counts as PHI in intake transcripts",
+    "Get union rep into governance cadence early",
+  ],
+};
 
 export default function Checkin() {
   const [, setLocation] = useLocation();
@@ -64,6 +82,62 @@ export default function Checkin() {
         </p>
       </div>
 
+      {/* Last Week's Context (Demo Visibility) */}
+      <Card className="border-dashed border-muted-foreground/30 bg-muted/20">
+        <CardHeader className="pb-3">
+          <div className="flex items-center gap-2">
+            <History className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
+              Last Week's Context
+            </CardTitle>
+            <span className="text-xs font-mono text-muted-foreground/70 ml-auto">
+              {LAST_WEEK_CONTEXT.date} • {LAST_WEEK_CONTEXT.topic}
+            </span>
+          </div>
+          <CardDescription>
+            What the system already knows from your previous check-in
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <div className="text-xs font-bold uppercase text-muted-foreground mb-2">Work Changes Recorded</div>
+            <ul className="space-y-1">
+              {LAST_WEEK_CONTEXT.changes.map((change, i) => (
+                <li key={i} className="text-sm text-muted-foreground flex items-start gap-2">
+                  <span className={change.impact === 'critical' ? 'text-red-500' : 'text-muted-foreground/50'}>
+                    {change.impact === 'critical' ? '!' : '•'}
+                  </span>
+                  <span>{change.bullet}</span>
+                  {change.impact === 'critical' && (
+                    <span className="text-[10px] uppercase font-bold text-red-500 ml-1">critical</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <div className="text-xs font-bold uppercase text-muted-foreground mb-2">Open Threads (Unresolved)</div>
+            <ul className="space-y-1">
+              {LAST_WEEK_CONTEXT.openThreads.map((thread, i) => (
+                <li key={i} className="text-sm text-amber-600 dark:text-amber-400 flex items-start gap-2">
+                  <span className="text-amber-500/50">⚠</span>
+                  {thread}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Arrow indicating flow */}
+      <div className="flex justify-center">
+        <div className="flex items-center gap-2 text-muted-foreground">
+          <ArrowRight className="h-5 w-5" />
+          <span className="text-sm font-medium">Now add THIS week's updates</span>
+          <ArrowRight className="h-5 w-5" />
+        </div>
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle>Work Delta</CardTitle>
@@ -84,12 +158,12 @@ export default function Checkin() {
 
             <div className="space-y-2">
               <Label htmlFor="work_changes">What changed at work? (Bullets)</Label>
-              <Textarea 
-                id="work_changes" 
-                name="work_changes" 
-                value={formData.work_changes} 
-                onChange={handleChange} 
-                required 
+              <Textarea
+                id="work_changes"
+                name="work_changes"
+                value={formData.work_changes}
+                onChange={handleChange}
+                required
                 className="min-h-[120px]"
               />
             </div>

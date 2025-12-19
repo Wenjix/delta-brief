@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { Button } from "@/components/ui/button";
 import { Streamdown } from "streamdown";
 import { Memory } from "@/lib/memory";
+import { ExecutiveCard } from "@/components/ExecutiveCard";
 import { X, CheckCircle, SplitSquareHorizontal, LayoutTemplate, FileText, ArrowRight, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -212,16 +213,21 @@ export function CompareView({
                         <div className="flex-1 overflow-y-auto p-8">
                             {previousBrief ? (
                                 <div className="max-w-xl mx-auto">
-                                    {viewMode === 'executive' && renderMoves(prevMoves, false)}
-
-                                    <article className={cn(
-                                        "prose prose-sm prose-slate dark:prose-invert max-w-none transition-opacity",
-                                        "prose-headings:font-bold prose-h1:text-xl prose-h2:text-sm prose-h2:uppercase prose-h2:tracking-wider prose-h2:border-b prose-h2:pb-2 prose-h2:mt-8",
-                                        "prose-strong:text-slate-900 dark:prose-strong:text-slate-100 prose-li:my-0.5",
-                                        viewMode === 'executive' ? "opacity-60 hover:opacity-100" : "opacity-100"
-                                    )}>
-                                        <Streamdown>{previousBrief.payload.markdown}</Streamdown>
-                                    </article>
+                                    {viewMode === 'executive' ? (
+                                        <ExecutiveCard
+                                            brief={previousBrief}
+                                            isCurrent={false}
+                                            sessionTopic={sessionTopic}
+                                        />
+                                    ) : (
+                                        <article className={cn(
+                                            "prose prose-sm prose-slate dark:prose-invert max-w-none",
+                                            "prose-headings:font-bold prose-h1:text-xl prose-h2:text-sm prose-h2:uppercase prose-h2:tracking-wider prose-h2:border-b prose-h2:pb-2 prose-h2:mt-8",
+                                            "prose-strong:text-slate-900 dark:prose-strong:text-slate-100 prose-li:my-0.5"
+                                        )}>
+                                            <Streamdown>{previousBrief.payload.markdown}</Streamdown>
+                                        </article>
+                                    )}
                                 </div>
                             ) : (
                                 <div className="h-full flex flex-col items-center justify-center text-muted-foreground p-8 text-center">
@@ -246,15 +252,21 @@ export function CompareView({
                         <div className="flex-1 overflow-y-auto p-8">
                             {currentBrief ? (
                                 <div className="max-w-xl mx-auto">
-                                    {viewMode === 'executive' && renderMoves(currMoves, true)}
-
-                                    <article className={cn(
-                                        "prose prose-sm prose-slate dark:prose-invert max-w-none",
-                                        "prose-headings:font-bold prose-h1:text-2xl prose-h2:text-sm prose-h2:uppercase prose-h2:tracking-wider prose-h2:border-b prose-h2:border-primary/20 prose-h2:pb-2 prose-h2:mt-8 prose-h2:text-primary",
-                                        "prose-strong:text-foreground prose-li:my-0.5"
-                                    )}>
-                                        <Streamdown>{currentBrief.payload.markdown}</Streamdown>
-                                    </article>
+                                    {viewMode === 'executive' ? (
+                                        <ExecutiveCard
+                                            brief={currentBrief}
+                                            isCurrent={true}
+                                            sessionTopic={sessionTopic}
+                                        />
+                                    ) : (
+                                        <article className={cn(
+                                            "prose prose-sm prose-slate dark:prose-invert max-w-none",
+                                            "prose-headings:font-bold prose-h1:text-2xl prose-h2:text-sm prose-h2:uppercase prose-h2:tracking-wider prose-h2:border-b prose-h2:border-primary/20 prose-h2:pb-2 prose-h2:mt-8 prose-h2:text-primary",
+                                            "prose-strong:text-foreground prose-li:my-0.5"
+                                        )}>
+                                            <Streamdown>{currentBrief.payload.markdown}</Streamdown>
+                                        </article>
+                                    )}
                                 </div>
                             ) : (
                                 <div className="h-full flex flex-col items-center justify-center text-muted-foreground">

@@ -16,8 +16,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {/* Sidebar Navigation */}
       <aside className="w-full md:w-64 border-b md:border-r border-border bg-sidebar p-6 flex flex-col shrink-0">
         <div className="mb-8">
-          <h1 className="text-xl font-bold tracking-tight">PatchED</h1>
-          <p className="text-xs text-muted-foreground mt-1 font-mono">DELTA BRIEF DEMO</p>
+          <h1 className="text-xl font-bold tracking-tight">Delta Brief</h1>
+          <p className="text-xs text-muted-foreground mt-1 font-mono">EMBA CLASS PREP</p>
         </div>
 
         <nav className="space-y-1 flex-1">
