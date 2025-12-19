@@ -1,4 +1,4 @@
-# PatchED Delta Brief Demo
+# Delta Brief Demo
 
 A personalized "Pre-Class Delta Brief" generator for EMBA students. This demo showcases how **episodic memory** (weekly work deltas) and **profile memory** (goals, constraints) can be combined to generate high-leverage, compounding executive briefs.
 
