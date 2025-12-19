@@ -46,12 +46,20 @@ function jaccard(a: Set<string>, b: Set<string>): number {
   a.forEach(item => {
     if (b.has(item)) intersection++;
   });
-  
+
   const union = a.size + b.size - intersection;
   return intersection / union;
 }
 
-export function checkNoRepeats(prevMoves: string[], newMoves: string[]): SimilarityReport {
+/**
+ * Check if new moves are too similar to previous moves.
+ * Returns a report indicating whether moves passed the similarity check.
+ * 
+ * @param newMoves - The newly generated moves to validate
+ * @param previousMoves - The previous brief's moves to compare against
+ * @returns SimilarityReport with pass/fail status and similarity details
+ */
+export function checkForSimilarity(newMoves: string[], previousMoves: string[]): SimilarityReport {
   const report: SimilarityReport = {
     pass: true,
     maxScore: 0,
@@ -63,7 +71,7 @@ export function checkNoRepeats(prevMoves: string[], newMoves: string[]): Similar
     const bigramsNew = getBigrams(normNew);
     const newStr = normNew.join(" ");
 
-    for (const prevMove of prevMoves) {
+    for (const prevMove of previousMoves) {
       const normPrev = normalizeTokens(prevMove);
       const bigramsPrev = getBigrams(normPrev);
       const prevStr = normPrev.join(" ");
@@ -77,10 +85,10 @@ export function checkNoRepeats(prevMoves: string[], newMoves: string[]): Similar
         reason = "exact";
       } else {
         score = jaccard(bigramsNew, bigramsPrev);
-        
+
         // Threshold rules
         const threshold = (normNew.length <= 6 || normPrev.length <= 6) ? 0.50 : 0.60;
-        
+
         if (score >= threshold) {
           reason = "high_similarity";
         }

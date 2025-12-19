@@ -58,14 +58,14 @@ export class LocalMemoryProvider implements MemoryProvider {
       v: 1,
       created_at: new Date().toISOString(),
     };
-    
+
     // Prepend to keep newest first
     memories.unshift(newMemory);
     this.saveMemories(memories);
-    
+
     // Simulate network delay
     await new Promise(resolve => setTimeout(resolve, 300));
-    
+
     return newMemory.id;
   }
 
@@ -87,7 +87,7 @@ export class LocalMemoryProvider implements MemoryProvider {
     if (query.trim()) {
       const lowerQuery = query.toLowerCase();
       const terms = lowerQuery.split(/\s+/);
-      
+
       memories = memories.map(m => {
         const text = JSON.stringify(m.payload).toLowerCase();
         let score = 0;
@@ -96,9 +96,9 @@ export class LocalMemoryProvider implements MemoryProvider {
         });
         return { memory: m, score };
       })
-      .filter(item => item.score > 0)
-      .sort((a, b) => b.score - a.score) // Sort by score desc
-      .map(item => item.memory);
+        .filter(item => item.score > 0)
+        .sort((a, b) => b.score - a.score) // Sort by score desc
+        .map(item => item.memory);
     }
 
     // 3. Top K
@@ -125,5 +125,67 @@ export class LocalMemoryProvider implements MemoryProvider {
   }
 }
 
-// Singleton instance
-export const memoryProvider = new LocalMemoryProvider();
+// --- MemMachine Provider Stub (for future integration) ---
+
+export class MemMachineProvider implements MemoryProvider {
+  private baseUrl: string;
+
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl;
+    console.log(`[MemMachine] Initialized with URL: ${baseUrl}`);
+  }
+
+  async add(content: Omit<Memory, 'id' | 'created_at' | 'kind' | 'v'>): Promise<string> {
+    // TODO: Implement API call to MemMachine
+    // POST ${this.baseUrl}/memories
+    console.warn('[MemMachine] add() not implemented, falling back to local');
+    throw new Error('MemMachine integration not yet implemented. Set VITE_MEMORY_PROVIDER=local');
+  }
+
+  async search(query: string, filters?: MemoryFilter, top_k: number = 5): Promise<Memory[]> {
+    // TODO: Implement API call to MemMachine
+    // GET ${this.baseUrl}/memories/search?q=${query}&top_k=${top_k}
+    console.warn('[MemMachine] search() not implemented');
+    throw new Error('MemMachine integration not yet implemented. Set VITE_MEMORY_PROVIDER=local');
+  }
+
+  async list(filters?: MemoryFilter): Promise<Memory[]> {
+    // TODO: Implement API call to MemMachine
+    // GET ${this.baseUrl}/memories
+    console.warn('[MemMachine] list() not implemented');
+    throw new Error('MemMachine integration not yet implemented. Set VITE_MEMORY_PROVIDER=local');
+  }
+
+  async clear(): Promise<void> {
+    // TODO: Implement API call to MemMachine
+    // DELETE ${this.baseUrl}/memories
+    console.warn('[MemMachine] clear() not implemented');
+    throw new Error('MemMachine integration not yet implemented. Set VITE_MEMORY_PROVIDER=local');
+  }
+}
+
+// --- Factory Function ---
+
+/**
+ * Creates the appropriate MemoryProvider based on environment configuration.
+ * 
+ * Set VITE_MEMORY_PROVIDER='memmachine' and VITE_MEMMACHINE_URL to use MemMachine.
+ * Defaults to LocalMemoryProvider (localStorage-based) for demo.
+ */
+export function createMemoryProvider(): MemoryProvider {
+  const provider = import.meta.env.VITE_MEMORY_PROVIDER;
+
+  if (provider === 'memmachine') {
+    const url = import.meta.env.VITE_MEMMACHINE_URL;
+    if (!url) {
+      console.error('[MemMachine] VITE_MEMMACHINE_URL not set, falling back to local');
+      return new LocalMemoryProvider();
+    }
+    return new MemMachineProvider(url);
+  }
+
+  return new LocalMemoryProvider();
+}
+
+// Singleton instance (created via factory)
+export const memoryProvider = createMemoryProvider();

@@ -7,6 +7,7 @@ import { memoryProvider, Memory } from "@/lib/memory";
 import { seedDemoData } from "@/lib/seed";
 import { Trash2, RefreshCw, Database, Calendar, Briefcase, FileText, User, GitCompare, BookOpen, AlertTriangle, AlertCircle, Info, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
+import { CompareView } from "@/components/CompareView";
 import syllabusData from "@/lib/syllabus.json";
 
 // Define syllabus types
@@ -69,12 +70,12 @@ export default function History() {
       await seedDemoData();
       await loadMemories();
       toast.success("Demo data seeded (Week A + Week B)");
-      
+
       // Auto-redirect to Brief page with Dev Mode enabled for the "Next Up" session
       // We assume the seed data sets up a scenario where the user is ready for the NEXT session
       // The seed data typically populates past sessions.
       // Let's find the latest session in the seed data and target the one AFTER it.
-      
+
       // For now, we'll just redirect to /brief and let the user see the "Next Up" state
       // But we'll append ?dev=1 to enable the date picker immediately
       setTimeout(() => {
@@ -179,14 +180,14 @@ export default function History() {
         ) : (
           sortedDates.map((date, dateIndex) => {
             const syllabus = getSyllabusForDate(date);
-            
+
             return (
               <div key={date} className="relative">
                 {/* Date Marker */}
                 <div className="absolute -left-[21px] md:-left-[29px] bg-background border-2 border-primary rounded-full p-1.5 z-10">
                   <Calendar className="h-4 w-4 text-primary" />
                 </div>
-                
+
                 <div className="ml-8 md:ml-12">
                   <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-4">
                     <h3 className="text-lg font-bold flex items-center gap-2">
@@ -194,7 +195,7 @@ export default function History() {
                       {dateIndex === 0 && <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">Current Week</span>}
                       {dateIndex === 1 && <span className="text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">Last Week</span>}
                     </h3>
-                    
+
                     {syllabus && (
                       <div className="flex items-center gap-2 text-sm text-muted-foreground bg-muted/30 px-3 py-1 rounded-full border border-muted">
                         <BookOpen className="h-3.5 w-3.5" />
@@ -242,9 +243,9 @@ export default function History() {
                             </div>
                             <div className="flex items-center gap-2">
                               {mem.episode_type === 'brief_output' && dateIndex === 0 && (
-                                <Button 
-                                  variant="ghost" 
-                                  size="sm" 
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
                                   className="h-7 text-xs"
                                   onClick={() => handleCompare(mem)}
                                 >
@@ -268,7 +269,7 @@ export default function History() {
                               </div>
                             </div>
                           )}
-                          
+
                           {mem.episode_type === 'work_delta' && (
                             <div className="space-y-2">
                               <div className="flex items-center gap-2">
@@ -276,8 +277,10 @@ export default function History() {
                                 <span className="font-medium">{mem.payload.constraint_focus_this_week}</span>
                               </div>
                               <div className="bg-muted/50 p-2 rounded text-xs font-mono">
-                                {(mem.payload.work_changes as string[]).slice(0, 2).map((change, i) => (
-                                  <div key={i} className="truncate">• {change}</div>
+                                {((mem.payload.work_changes as any[]) || []).slice(0, 2).map((change, i) => (
+                                  <div key={i} className="truncate">
+                                    • {typeof change === 'string' ? change : change.bullet}
+                                  </div>
                                 ))}
                               </div>
                             </div>
@@ -286,12 +289,12 @@ export default function History() {
                           {mem.episode_type === 'brief_output' && (
                             <div className="space-y-2">
                               <div className="flex flex-wrap gap-1">
-                                {(mem.payload.highlights as string[]).slice(0, 3).map((h, i) => (
+                                {((mem.payload.highlights as string[]) || []).slice(0, 3).map((h, i) => (
                                   <span key={i} className="text-[10px] bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-100">
                                     {h}
                                   </span>
                                 ))}
-                                {(mem.payload.highlights as string[]).length > 3 && (
+                                {((mem.payload.highlights as string[]) || []).length > 3 && (
                                   <span className="text-[10px] text-muted-foreground px-1.5 py-0.5">
                                     +{(mem.payload.highlights as string[]).length - 3} more
                                   </span>
@@ -309,6 +312,15 @@ export default function History() {
           })
         )}
       </div>
+      <CompareView
+        open={diffOpen}
+        onOpenChange={setDiffOpen}
+        currentBrief={selectedBrief}
+        previousBrief={previousBrief}
+        deltaSummary={null}
+        sessionTopic={selectedBrief ? getSyllabusForDate(selectedBrief.session_id)?.topic || "" : ""}
+        sessionDate={selectedBrief ? selectedBrief.session_id : ""}
+      />
     </div>
   );
 }

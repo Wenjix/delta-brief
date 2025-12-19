@@ -1,4 +1,5 @@
 import { memoryProvider } from "./memory";
+import { WorkChange } from "./types";
 import syllabus from "./syllabus.json";
 
 export async function seedDemoData() {
@@ -37,7 +38,7 @@ export async function seedDemoData() {
   });
 
   // 2. Week A: Data Strategy & Ethics (2025-12-10)
-  
+
   // Week A Work Delta
   await memoryProvider.add({
     user_id: "u_demo",
@@ -120,7 +121,7 @@ export async function seedDemoData() {
   });
 
   // 3. Week B: Operating Model & Governance (2025-12-17)
-  
+
   // Week B Work Delta (The "Present")
   await memoryProvider.add({
     user_id: "u_demo",

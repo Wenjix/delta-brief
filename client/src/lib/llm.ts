@@ -1,15 +1,15 @@
 import OpenAI from 'openai';
 import { Memory } from './memory';
-import { checkNoRepeats, SimilarityReport } from './similarity';
+import { checkForSimilarity, SimilarityReport } from './similarity';
 import syllabus from './syllabus.json';
 
 // Initialize OpenAI client
 const openai = new OpenAI({
   apiKey: import.meta.env.VITE_OPENAI_API_KEY,
-  dangerouslyAllowBrowser: true 
+  dangerouslyAllowBrowser: true
 });
 
-const MODEL_ID = 'gpt-4o-mini'; 
+const MODEL_ID = 'gpt-5.1';
 
 export interface BriefGenerationParams {
   classDate: string;
@@ -86,7 +86,7 @@ function extractStructuredData(markdown: string) {
 
   // 3. Extract Frameworks by Move
   const frameworks: string[] = [];
-  const frameworkRegex = /^\d+\)\s*Move:.+?\(Framework:\s*(.+?)\)/gm;
+  const frameworkRegex = /^\d+\)\s*Move:.+?\[Framework:\s*(.+?)\]/gm;
   let fwMatch;
   while ((fwMatch = frameworkRegex.exec(markdown)) !== null) {
     frameworks.push(fwMatch[1].trim());
@@ -127,7 +127,7 @@ function formatSyllabusForLLM(s: ReturnType<typeof getSyllabusDetails>) {
   const frameworkNames = (s.frameworks ?? []).map(f => f.name).filter(Boolean);
 
   const syllabusStr =
-`SYLLABUS CONTEXT (authoritative)
+    `SYLLABUS CONTEXT (authoritative)
 COURSE: ${s.course}
 CLASS DATE: ${s.date}
 TOPIC: ${s.topic}
@@ -145,7 +145,7 @@ ASSIGNMENT HOOK:
 - ${s.assignment_hook ?? "Assumption: no assignment hook provided"}`;
 
   const allowedFrameworkNamesStr =
-`ALLOWED_FRAMEWORK_NAMES (must match exactly, choose one per Move):
+    `ALLOWED_FRAMEWORK_NAMES (must match exactly, choose one per Move):
 ${JSON.stringify(frameworkNames)}`;
 
   return { syllabusStr, allowedFrameworkNamesStr, frameworkNames };
@@ -238,13 +238,13 @@ Hard constraints:
 - Do NOT invent facts about the user’s org; only use provided memories/deltas. If needed, use “Assumption: …”.`;
 
 export async function generateBrief(params: BriefGenerationParams): Promise<BriefGenerationResult> {
-  const { 
-    classDate, 
-    className, 
-    syllabusTopic, 
-    mode, 
-    profile, 
-    recentDeltas = [], 
+  const {
+    classDate,
+    className,
+    syllabusTopic,
+    mode,
+    profile,
+    recentDeltas = [],
     lastBrief,
     enableSimilarityCheck = false,
     customSystemPrompt,
@@ -255,11 +255,11 @@ export async function generateBrief(params: BriefGenerationParams): Promise<Brie
   let retryCount = 0;
 
   // 1. Construct Context Strings
-  const profileStr = isPersonalized && profile 
-    ? JSON.stringify(profile.payload, null, 2) 
+  const profileStr = isPersonalized && profile
+    ? JSON.stringify(profile.payload, null, 2)
     : "NOT AVAILABLE (Generic Mode)";
 
-  const deltasStr = recentDeltas.length > 0 
+  const deltasStr = recentDeltas.length > 0
     ? recentDeltas.map(d => JSON.stringify(d.payload)).join('\n---\n')
     : "No recent updates recorded.";
 
@@ -273,9 +273,9 @@ export async function generateBrief(params: BriefGenerationParams): Promise<Brie
 
   // 2. Build Prompts
   const systemPrompt = customSystemPrompt || DEFAULT_SYSTEM_PROMPT;
-  
+
   let userPrompt = customUserPromptTemplate || DEFAULT_USER_PROMPT_TEMPLATE;
-  
+
   // Interpolate variables
   userPrompt = userPrompt
     .replace('{{syllabusTopic}}', syllabusTopic)
@@ -345,12 +345,12 @@ export async function generateBrief(params: BriefGenerationParams): Promise<Brie
       // Gate 3: Open Thread Update Line (Single Occurrence)
       const updateLineCount = (markdown.match(/Open Thread Update: Previously:/g) || []).length;
       if (lastBrief && updateLineCount !== 1) {
-         // Only strict if we have a last brief (implying potential open threads)
-         // But actually, maybe we only enforce it if we *know* there was an open thread.
-         // For now, let's just warn if it's > 1 (duplicate).
-         if (updateLineCount > 1) {
-            validationErrors.push(`Found ${updateLineCount} "Open Thread Update" lines. Please include this line ONLY ONCE for the single most relevant move.`);
-         }
+        // Only strict if we have a last brief (implying potential open threads)
+        // But actually, maybe we only enforce it if we *know* there was an open thread.
+        // For now, let's just warn if it's > 1 (duplicate).
+        if (updateLineCount > 1) {
+          validationErrors.push(`Found ${updateLineCount} "Open Thread Update" lines. Please include this line ONLY ONCE for the single most relevant move.`);
+        }
       }
 
       // Gate 4: Duplicate Sections
@@ -367,20 +367,20 @@ export async function generateBrief(params: BriefGenerationParams): Promise<Brie
         const keywords = topDelta.match(/\b\w{6,}\b/g) || [];
         const markdownLower = markdown.toLowerCase();
         const hasKeyword = keywords.some(k => markdownLower.includes(k));
-        
+
         if (!hasKeyword && keywords.length > 0) {
-           // This is a soft check, maybe don't fail, but prompt to be more specific?
-           // Let's skip failing for now to avoid over-constraining, but log it.
-           console.warn("Validation Warning: Brief might not reference top delta keywords.");
+          // This is a soft check, maybe don't fail, but prompt to be more specific?
+          // Let's skip failing for now to avoid over-constraining, but log it.
+          console.warn("Validation Warning: Brief might not reference top delta keywords.");
         }
       }
 
       // Gate 6: Similarity Check (if enabled)
       if (enableSimilarityCheck && lastBrief && lastBrief.payload.moves) {
-        const report = await checkNoRepeats(moves, lastBrief.payload.moves);
+        const report = checkForSimilarity(moves, lastBrief.payload.moves as string[]);
         similarityReport = report;
         if (!report.pass) {
-          const feedback = report.pairs.map(p => `"${p.newMove}" is too similar to "${p.prevMove}"`).join("; ");
+          const feedback = report.pairs.map((p: { newMove: string; prevMove: string }) => `"${p.newMove}" is too similar to "${p.prevMove}"`).join("; ");
           validationErrors.push(`Similarity check failed: ${feedback}. Please rewrite the moves to be distinct from the previous brief.`);
         }
       }
@@ -396,12 +396,12 @@ export async function generateBrief(params: BriefGenerationParams): Promise<Brie
     } catch (error: any) {
       console.warn(`Attempt ${retryCount + 1} failed:`, error.message);
       retryCount++;
-      
+
       if (retryCount > MAX_RETRIES) {
         console.error("Max retries exceeded. Returning best effort result.");
         // Fallback: Return what we have, but maybe append a warning in the markdown?
         // For now, just return it to avoid crashing the UI, but the user might see the issues.
-        break; 
+        break;
       }
 
       // Add feedback to the user prompt for the next attempt
