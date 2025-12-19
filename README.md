@@ -1,6 +1,8 @@
 # Delta Brief
 
-> **One-page pre-class executive briefs for EMBA students** — turning weekly work realities into actionable class prep.
+> **One-page pre-class executive briefs for EMBA students** — turning weekly work realities into actionable class prep and class learnings into actionable work leverage.
+
+[![Demo Video](https://img.shields.io/badge/Demo-YouTube-red?logo=youtube)](https://youtu.be/1Ka_ddIewlk)
 
 ## Inspiration
 
@@ -56,7 +58,7 @@ Delta Brief generates a **one-page pre-class executive brief** for the next EMBA
 ## Built With
 
 - **Frontend**: React, TypeScript, Vite, TailwindCSS, shadcn/ui
-- **LLM**: OpenAI GPT-4o
+- **LLM**: OpenAI GPT-5-mini + text-embedding-3-large
 - **Memory**: MemMachine (PostgreSQL + pgvector + Neo4j)
 - **Icons**: Lucide React
 
@@ -121,7 +123,7 @@ Delta Brief generates a **one-page pre-class executive brief** for the next EMBA
 │  ├── Semantic Memory: Profile (role, constraints, capstone) │
 │  └── Episodic Memory: Weekly check-ins, prior briefs        │
 ├─────────────────────────────────────────────────────────────┤
-│  LLM (OpenAI GPT-4o) — Strict template + validation         │
+│  LLM (OpenAI GPT-5-mini) — Strict template + validation     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
